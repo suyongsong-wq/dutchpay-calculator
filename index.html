@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>비만도(BMI) 측정기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-up { animation: fadeUp 0.35s ease-out; }
+  </style>
+</head>
+<body class="bg-slate-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ========================================
+    // React Hooks Destructuring
+    // ========================================
+    const { useState, useMemo, useCallback } = React;
+
+    // ========================================
+    // 🎯 Domain Logic (BMI 계산 / 판정)
+    // ========================================
+    // 대한비만학회 아시아 기준 판정 구간
+    const BMI_CATEGORIES = [
+      {
+        key: 'underweight',
+        label: '저체중',
+        range: 'BMI 18.5 미만',
+        match: (bmi) => bmi < 18.5,
+        colorBar: 'bg-blue-500',
+        colorText: 'text-blue-600',
+        colorBg: 'bg-blue-50',
+        colorBorder: 'border-blue-200',
+        message: '체중이 부족한 상태입니다. 균형 잡힌 영양 섭취가 필요해요.',
+      },
+      {
+        key: 'normal',
+        label: '정상',
+        range: 'BMI 18.5 ~ 22.9',
+        match: (bmi) => bmi >= 18.5 && bmi <= 22.9,
+        colorBar: 'bg-green-500',
+        colorText: 'text-green-600',
+        colorBg: 'bg-green-50',
+        colorBorder: 'border-green-200',
+        message: '건강한 체중 범위입니다. 지금 상태를 잘 유지하세요!',
+      },
+      {
+        key: 'overweight',
+        label: '과체중',
+        range: 'BMI 23 ~ 24.9',
+        match: (bmi) => bmi >= 23 && bmi <= 24.9,
+        colorBar: 'bg-orange-500',
+        colorText: 'text-orange-600',
+        colorBg: 'bg-orange-50',
+        colorBorder: 'border-orange-200',
+        message: '비만 전 단계입니다. 식습관과 운동을 점검해 보세요.',
+      },
+      {
+        key: 'obese',
+        label: '비만',
+        range: 'BMI 25 이상',
+        match: (bmi) => bmi >= 25,
+        colorBar: 'bg-red-500',
+        colorText: 'text-red-600',
+        colorBg: 'bg-red-50',
+        colorBorder: 'border-red-200',
+        message: '비만 상태입니다. 생활습관 개선과 전문가 상담을 권장해요.',
+      },
+    ];
+
+    function getCategory(bmi) {
+      return BMI_CATEGORIES.find((c) => c.match(bmi)) || BMI_CATEGORIES[BMI_CATEGORIES.length - 1];
+    }
+
+    // 검증 규칙 (빈 값, 0 이하, 비정상적으로 큰 값)
+    const LIMITS = {
+      height: { min: 50, max: 250, label: '키' },   // cm
+      weight: { min: 10, max: 400, label: '몸무게' }, // kg
+    };
+
+    function validateField(name, rawValue) {
+      const limit = LIMITS[name];
+      if (rawValue.trim() === '') {
+        return `${limit.label}을(를) 입력해 주세요.`;
+      }
+      const num = Number(rawValue);
+      if (Number.isNaN(num)) {
+        return `${limit.label}은(는) 숫자로 입력해 주세요.`;
+      }
+      if (num <= 0) {
+        return `${limit.label}은(는) 0보다 커야 합니다.`;
+      }
+      if (num < limit.min) {
+        return `${limit.label} 값이 너무 작습니다. (${limit.min} 이상 입력)`;
+      }
+      if (num > limit.max) {
+        return `${limit.label} 값이 너무 큽니다. (${limit.max} 이하 입력)`;
+      }
+      return '';
+    }
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+    function Card({ children, className = '' }) {
+      return (
+        <div className={`bg-white rounded-2xl shadow-xl shadow-slate-200/60 ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    function Input({ label, unit, value, onChange, error, ...rest }) {
+      const hasError = Boolean(error);
+      return (
+        <div className="w-full">
+          <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+            {label}
+          </label>
+          <div className="relative">
+            <input
+              value={value}
+              onChange={onChange}
+              inputMode="decimal"
+              aria-invalid={hasError}
+              className={`w-full rounded-xl border px-4 py-3 pr-12 text-lg text-slate-900
+                outline-none transition
+                placeholder:text-slate-300
+                focus:ring-4
+                ${hasError
+                  ? 'border-red-400 focus:border-red-500 focus:ring-red-100'
+                  : 'border-slate-200 focus:border-indigo-500 focus:ring-indigo-100'}`}
+              {...rest}
+            />
+            {unit && (
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400">
+                {unit}
+              </span>
+            )}
+          </div>
+          {hasError && (
+            <p className="mt-1.5 text-sm text-red-500" role="alert">
+              {error}
+            </p>
+          )}
+        </div>
+      );
+    }
+
+    function Button({ children, variant = 'primary', className = '', ...rest }) {
+      const variants = {
+        primary:
+          'bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-indigo-300',
+        ghost:
+          'bg-slate-100 text-slate-600 hover:bg-slate-200 active:bg-slate-300',
+      };
+      return (
+        <button
+          className={`rounded-xl px-5 py-3 text-base font-semibold transition
+            disabled:cursor-not-allowed ${variants[variant]} ${className}`}
+          {...rest}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    // ========================================
+    // 🧩 Result Components
+    // ========================================
+    function BmiGauge({ activeKey }) {
+      // 시각적 구간 막대
+      return (
+        <div className="mt-6">
+          <div className="flex h-3 w-full overflow-hidden rounded-full">
+            {BMI_CATEGORIES.map((c) => (
+              <div
+                key={c.key}
+                className={`flex-1 ${c.colorBar} transition-opacity ${
+                  activeKey === c.key ? 'opacity-100' : 'opacity-30'
+                }`}
+              />
+            ))}
+          </div>
+          <div className="mt-2 flex w-full text-center text-[11px] font-medium text-slate-400">
+            {BMI_CATEGORIES.map((c) => (
+              <div
+                key={c.key}
+                className={`flex-1 ${activeKey === c.key ? c.colorText + ' font-bold' : ''}`}
+              >
+                {c.label}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function ResultPanel({ bmi, category }) {
+      return (
+        <div
+          className={`mt-6 animate-fade-up rounded-2xl border p-6 text-center
+            ${category.colorBg} ${category.colorBorder}`}
+        >
+          <p className="text-sm font-medium text-slate-500">회원님의 BMI는</p>
+          <p className={`mt-1 text-5xl font-extrabold ${category.colorText}`}>
+            {bmi.toFixed(1)}
+          </p>
+          <div className="mt-3 inline-flex items-center gap-2">
+            <span className={`h-2.5 w-2.5 rounded-full ${category.colorBar}`} />
+            <span className={`text-lg font-bold ${category.colorText}`}>
+              {category.label}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-400">{category.range}</p>
+          <p className="mt-3 text-sm leading-relaxed text-slate-600">
+            {category.message}
+          </p>
+          <BmiGauge activeKey={category.key} />
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📄 Page Component (BMI 측정기)
+    // ========================================
+    function BmiCalculator() {
+      const [height, setHeight] = useState('');
+      const [weight, setWeight] = useState('');
+      const [errors, setErrors] = useState({ height: '', weight: '' });
+      const [result, setResult] = useState(null); // { bmi }
+
+      const handleChange = useCallback((name, setter) => (e) => {
+        const val = e.target.value;
+        setter(val);
+        // 입력 중에는 결과를 숨겨 혼동 방지
+        setResult(null);
+        setErrors((prev) => ({ ...prev, [name]: '' }));
+      }, []);
+
+      const calculate = useCallback(() => {
+        const heightError = validateField('height', height);
+        const weightError = validateField('weight', weight);
+
+        if (heightError || weightError) {
+          setErrors({ height: heightError, weight: weightError });
+          setResult(null);
+          return;
+        }
+
+        setErrors({ height: '', weight: '' });
+        const heightM = Number(height) / 100;
+        const bmi = Number(weight) / (heightM * heightM);
+        setResult({ bmi });
+      }, [height, weight]);
+
+      const reset = useCallback(() => {
+        setHeight('');
+        setWeight('');
+        setErrors({ height: '', weight: '' });
+        setResult(null);
+      }, []);
+
+      const handleKeyDown = useCallback((e) => {
+        if (e.key === 'Enter') calculate();
+      }, [calculate]);
+
+      const category = useMemo(
+        () => (result ? getCategory(result.bmi) : null),
+        [result]
+      );
+
+      return (
+        <div className="min-h-screen flex items-center justify-center px-4 py-10">
+          <div className="w-full max-w-md">
+            {/* Header */}
+            <header className="mb-6 text-center">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800">
+                비만도(BMI) 측정기
+              </h1>
+              <p className="mt-1.5 text-sm text-slate-500">
+                키와 몸무게로 체질량지수를 계산해 드려요
+              </p>
+            </header>
+
+            <Card className="p-6 sm:p-8">
+              <div className="space-y-4" onKeyDown={handleKeyDown}>
+                <Input
+                  label="키"
+                  unit="cm"
+                  placeholder="예: 170"
+                  value={height}
+                  onChange={handleChange('height', setHeight)}
+                  error={errors.height}
+                />
+                <Input
+                  label="몸무게"
+                  unit="kg"
+                  placeholder="예: 65"
+                  value={weight}
+                  onChange={handleChange('weight', setWeight)}
+                  error={errors.weight}
+                />
+
+                <div className="flex gap-3 pt-1">
+                  <Button onClick={calculate} className="flex-1">
+                    BMI 계산하기
+                  </Button>
+                  <Button variant="ghost" onClick={reset} aria-label="입력 초기화">
+                    초기화
+                  </Button>
+                </div>
+              </div>
+
+              {result && category && (
+                <ResultPanel bmi={result.bmi} category={category} />
+              )}
+            </Card>
+
+            {/* 기준 안내 */}
+            <p className="mt-5 text-center text-xs text-slate-400 leading-relaxed">
+              판정 기준: 대한비만학회 아시아 기준
+              <br />
+              본 결과는 참고용이며 의학적 진단을 대체하지 않습니다.
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 App Component
+    // ========================================
+    function App() {
+      return <BmiCalculator />;
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

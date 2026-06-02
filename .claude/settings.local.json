@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/suyong/.claude/agents/**)"
+    ]
+  }
+}
