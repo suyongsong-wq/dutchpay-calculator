@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>더치페이</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script>
+    // 토스 컬러 토큰
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Pretendard', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
+          },
+          colors: {
+            toss: {
+              blue: '#3182F6',
+              blueDark: '#1B64DA',
+              blueLight: '#E8F3FF',
+              red: '#F04452',
+              redLight: '#FFF0F0',
+              bg: '#F2F4F6',
+              line: '#E5E8EB',
+              g900: '#191F28',
+              g700: '#4E5968',
+              g500: '#8B95A1',
+              g300: '#B0B8C1',
+            },
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in { animation: fadeIn 0.25s ease-out; }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+    body { font-family: 'Pretendard', -apple-system, system-ui, sans-serif; }
+  </style>
+</head>
+<body class="bg-toss-bg">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo, useCallback } = React;
+
+    // ========================================
+    // 유틸리티
+    // ========================================
+    function formatWon(value) {
+      const n = Number(value);
+      if (!isFinite(n)) return "0원";
+      return Math.round(n).toLocaleString("ko-KR") + "원";
+    }
+    function toSafeNumber(value) {
+      const n = Number(value);
+      if (!isFinite(n) || isNaN(n) || n < 0) return 0;
+      return n;
+    }
+    let _idCounter = 0;
+    function uid() {
+      _idCounter += 1;
+      return Date.now().toString(36) + "_" + _idCounter;
+    }
+
+    // ========================================
+    // 핵심 계산 로직 (차수 1개에 대한 N빵 + 할인)
+    // 배열 / 반복문 / 조건 분기를 모두 사용
+    // ========================================
+    function calcRound(round, participants) {
+      const total = toSafeNumber(round.totalInput);
+      const rawDiscount = toSafeNumber(round.discountValue);
+      let discount = 0;
+      if (total > 0 && rawDiscount > 0) {
+        if (round.discountType === "percent") {
+          const pct = Math.min(rawDiscount, 100);
+          discount = total * (pct / 100);
+        } else {
+          discount = Math.min(rawDiscount, total);
+        }
+      }
+      const finalTotal = Math.round(Math.max(total - discount, 0));
+      const members = participants.filter((p) => round.memberIds.includes(p.id));
+      const n = members.length;
+      const baseShare = n > 0 ? Math.floor(finalTotal / n) : 0;
+      const remainder = n > 0 ? finalTotal - baseShare * n : 0;
+      const shares = members.map((p, idx) => {
+        const extra = idx < remainder ? 1 : 0;
+        return { id: p.id, name: p.name, extra, pay: baseShare + extra };
+      });
+      return { total, discount, finalTotal, members, n, baseShare, remainder, shares };
+    }
+
+    // ========================================
+    // 🎨 토스 스타일 디자인 시스템
+    // ========================================
+    function Button({ variant = "primary", size = "md", disabled = false, onClick, className = "", children, type = "button", ...rest }) {
+      const base = "inline-flex items-center justify-center font-bold rounded-xl transition-colors focus:outline-none active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed";
+      const variants = {
+        primary: "bg-toss-blue text-white hover:bg-toss-blueDark",
+        secondary: "bg-toss-blueLight text-toss-blue hover:bg-[#D3E7FF]",
+        subtle: "bg-toss-bg text-toss-g700 hover:bg-toss-line",
+        danger: "bg-transparent text-toss-g500 hover:bg-toss-bg",
+        cta: "bg-toss-blue text-white hover:bg-toss-blueDark w-full",
+      };
+      const sizes = {
+        sm: "text-[13px] px-3 py-2",
+        md: "text-[15px] px-4 py-2.5",
+        lg: "text-base px-5 py-4",
+      };
+      return (
+        <button type={type} disabled={disabled} onClick={onClick}
+          className={`${base} ${variants[variant]} ${sizes[size]} ${className}`} {...rest}>
+          {children}
+        </button>
+      );
+    }
+
+    function Field({ label, suffix, className = "", align = "left", ...rest }) {
+      return (
+        <label className="block">
+          {label && <span className="block text-[13px] font-semibold text-toss-g500 mb-2">{label}</span>}
+          <div className="relative">
+            <input
+              className={`w-full rounded-xl bg-toss-bg border-2 border-transparent px-4 py-3.5 text-[16px] font-semibold text-toss-g900 placeholder-toss-g300
+                focus:outline-none focus:bg-white focus:border-toss-blue transition
+                ${suffix ? "pr-10" : ""} ${align === "right" ? "text-right" : ""} ${className}`}
+              {...rest}
+            />
+            {suffix && (
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[15px] font-semibold text-toss-g500 pointer-events-none">{suffix}</span>
+            )}
+          </div>
+        </label>
+      );
+    }
+
+    function Card({ className = "", children }) {
+      return <div className={`bg-white rounded-2xl ${className}`}>{children}</div>;
+    }
+
+    function Segmented({ options, value, onChange }) {
+      return (
+        <div className="inline-flex rounded-xl bg-toss-bg p-1" role="tablist">
+          {options.map((opt) => {
+            const active = opt.value === value;
+            return (
+              <button key={opt.value} role="tab" aria-selected={active} onClick={() => onChange(opt.value)}
+                className={`px-3 py-2 text-[14px] font-bold rounded-lg transition-colors
+                  ${active ? "bg-white text-toss-blue shadow-sm" : "text-toss-g500"}`}>
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 공통
+    // ========================================
+    function Header() {
+      return (
+        <header className="px-1 mb-7">
+          <p className="text-[14px] font-bold text-toss-blue mb-2">간편 정산</p>
+          <h1 className="text-[26px] leading-[1.35] font-bold text-toss-g900">
+            오늘 모임,<br />깔끔하게 나눠요
+          </h1>
+          <p className="text-[14px] text-toss-g500 mt-2.5">차수별로 금액을 나누고 각자 낼 돈을 계산해요.</p>
+        </header>
+      );
+    }
+
+    function SectionTitle({ title, desc }) {
+      return (
+        <div className="px-1 mb-3">
+          <h2 className="text-[18px] font-bold text-toss-g900">{title}</h2>
+          {desc && <p className="text-[13px] text-toss-g500 mt-1">{desc}</p>}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 참가자 한 줄 (공유 명단)
+    // ========================================
+    function ParticipantRow({ participant, index, total, onChange, onRemove }) {
+      return (
+        <div className="flex items-center gap-3 animate-fade-in">
+          <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-toss-blueLight text-toss-blue font-bold text-[13px]">
+            {index + 1}
+          </span>
+          <input
+            aria-label="참가자 이름"
+            placeholder={`참가자 ${index + 1}`}
+            value={participant.name}
+            onChange={(e) => onChange({ ...participant, name: e.target.value })}
+            className="flex-1 rounded-xl bg-toss-bg border-2 border-transparent px-4 py-3 text-[15px] font-semibold text-toss-g900 placeholder-toss-g300 focus:outline-none focus:bg-white focus:border-toss-blue transition"
+          />
+          <button
+            onClick={onRemove}
+            disabled={total <= 1}
+            title={total <= 1 ? "최소 1명은 필요해요" : "삭제"}
+            className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-toss-g300 hover:bg-toss-bg hover:text-toss-red disabled:opacity-30 disabled:hover:bg-transparent transition-colors text-lg"
+          >
+            ✕
+          </button>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 차수 탭
+    // ========================================
+    function RoundTabs({ rounds, activeId, onSelect, onAdd }) {
+      return (
+        <div className="flex items-center gap-2 flex-wrap mb-3 px-1">
+          {rounds.map((r, idx) => {
+            const active = r.id === activeId;
+            return (
+              <button key={r.id} onClick={() => onSelect(r.id)}
+                className={`px-4 py-2 rounded-full text-[14px] font-bold transition-colors
+                  ${active ? "bg-toss-g900 text-white" : "bg-white text-toss-g500 hover:bg-toss-bg"}`}>
+                {idx + 1}차
+              </button>
+            );
+          })}
+          <button onClick={onAdd}
+            className="px-3.5 py-2 rounded-full text-[14px] font-bold text-toss-blue bg-toss-blueLight hover:bg-[#D3E7FF] transition-colors">
+            + 차수
+          </button>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 참가자 선택 칩
+    // ========================================
+    function MemberChips({ participants, memberIds, onToggle }) {
+      return (
+        <div className="flex flex-wrap gap-2">
+          {participants.map((p, idx) => {
+            const on = memberIds.includes(p.id);
+            return (
+              <button key={p.id} onClick={() => onToggle(p.id)}
+                className={`px-3.5 py-2 rounded-full text-[13px] font-bold transition-colors
+                  ${on ? "bg-toss-blue text-white" : "bg-toss-bg text-toss-g500"}`}>
+                {on ? "✓ " : ""}{p.name || `참가자 ${idx + 1}`}
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 차수별 편집 패널
+    // ========================================
+    function RoundPanel({ round, roundIndex, participants, totalRounds, onUpdate, onRemove }) {
+      const calc = calcRound(round, participants);
+      const toggleMember = (pid) => {
+        const memberIds = round.memberIds.includes(pid)
+          ? round.memberIds.filter((id) => id !== pid)
+          : [...round.memberIds, pid];
+        onUpdate({ ...round, memberIds });
+      };
+
+      return (
+        <Card className="p-5 animate-fade-in">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-[17px] font-bold text-toss-g900">{roundIndex + 1}차</h3>
+            <button
+              onClick={onRemove}
+              disabled={totalRounds <= 1}
+              className="text-[13px] font-semibold text-toss-g500 hover:text-toss-red disabled:opacity-30 transition-colors"
+            >
+              차수 삭제
+            </button>
+          </div>
+
+          {/* 금액 */}
+          <div className="mb-4">
+            <Field
+              label="이 차수 금액"
+              type="number" min="0" inputMode="numeric"
+              placeholder="0" suffix="원" align="right"
+              value={round.totalInput}
+              onChange={(e) => onUpdate({ ...round, totalInput: e.target.value })}
+            />
+          </div>
+
+          {/* 할인 */}
+          <div className="mb-5">
+            <span className="block text-[13px] font-semibold text-toss-g500 mb-2">할인</span>
+            <div className="flex gap-2">
+              <Segmented
+                value={round.discountType}
+                onChange={(v) => onUpdate({ ...round, discountType: v })}
+                options={[{ value: "amount", label: "원" }, { value: "percent", label: "%" }]}
+              />
+              <input
+                aria-label="할인 값"
+                type="number" min="0" inputMode="numeric" placeholder="0"
+                value={round.discountValue}
+                onChange={(e) => onUpdate({ ...round, discountValue: e.target.value })}
+                className="flex-1 rounded-xl bg-toss-bg border-2 border-transparent px-4 py-2.5 text-[15px] font-semibold text-toss-g900 text-right placeholder-toss-g300 focus:outline-none focus:bg-white focus:border-toss-blue transition"
+              />
+            </div>
+          </div>
+
+          {/* 참여자 선택 */}
+          <div className="mb-5">
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="text-[13px] font-semibold text-toss-g500">이 차수 참여자</span>
+              <span className="text-[13px] font-semibold text-toss-g500">{calc.n}명</span>
+            </div>
+            {participants.length === 0 ? (
+              <p className="text-[13px] text-toss-g300">먼저 참가자를 추가하세요.</p>
+            ) : (
+              <MemberChips participants={participants} memberIds={round.memberIds} onToggle={toggleMember} />
+            )}
+          </div>
+
+          {/* 차수별 결과 */}
+          <div className="rounded-xl bg-toss-bg p-4">
+            {calc.finalTotal <= 0 || calc.n === 0 ? (
+              <p className="text-[13px] text-toss-g500 text-center">금액과 참여자를 입력하면 1인당 금액이 보여요.</p>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[12px] text-toss-g500">
+                    {formatWon(calc.total)}
+                    {calc.discount > 0 && <span className="text-toss-red"> − {formatWon(calc.discount)}</span>}
+                  </p>
+                  <p className="text-[13px] font-semibold text-toss-g700 mt-0.5">{calc.n}명이 나눠요</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[12px] text-toss-g500">1인당</p>
+                  <p className="text-[20px] font-bold text-toss-blue leading-tight">{formatWon(calc.baseShare)}</p>
+                  {calc.remainder > 0 && <p className="text-[11px] text-toss-g500">일부 +1원</p>}
+                </div>
+              </div>
+            )}
+          </div>
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 🧩 전체 합산 결과
+    // ========================================
+    function SummaryPanel({ participants, roundCalcs }) {
+      const grandTotal = roundCalcs.reduce((sum, c) => sum + c.finalTotal, 0);
+      const perPerson = participants.map((p) => {
+        let total = 0;
+        const breakdown = roundCalcs.map((c, rIdx) => {
+          const share = c.shares.find((s) => s.id === p.id);
+          const pay = share ? share.pay : 0;
+          total += pay;
+          return { roundIndex: rIdx, pay, joined: !!share };
+        });
+        return { id: p.id, name: p.name, total, breakdown };
+      });
+
+      return (
+        <Card className="p-5">
+          {/* 헤드라인 금액 */}
+          <div className="mb-5">
+            <p className="text-[14px] font-semibold text-toss-g500">전체 합계 (모든 차수)</p>
+            <p className="text-[32px] font-bold text-toss-g900 mt-1">{formatWon(grandTotal)}</p>
+          </div>
+
+          {grandTotal <= 0 ? (
+            <div className="rounded-xl bg-toss-bg p-6 text-center">
+              <p className="text-[14px] text-toss-g500">각 차수의 금액과 참여자를 입력하면<br />각자 낼 금액이 합산돼요.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-toss-line">
+              {perPerson.map((p, i) => (
+                <div key={p.id} className="py-3.5 first:pt-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-full bg-toss-blueLight text-toss-blue text-[14px] font-bold">
+                        {(p.name || "?").trim().charAt(0) || (i + 1)}
+                      </span>
+                      <p className="text-[15px] font-bold text-toss-g900 truncate">{p.name || `참가자 ${i + 1}`}</p>
+                    </div>
+                    <p className="text-[17px] font-bold text-toss-g900 flex-shrink-0 ml-3">{formatWon(p.total)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-2 pl-12">
+                    {p.breakdown.map((b) => (
+                      <span key={b.roundIndex}
+                        className={`text-[11px] font-semibold rounded-md px-2 py-0.5 ${
+                          b.joined ? "bg-toss-bg text-toss-g700" : "bg-toss-bg text-toss-g300"
+                        }`}>
+                        {b.roundIndex + 1}차 {b.joined ? formatWon(b.pay) : "불참"}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      );
+    }
+
+    // ========================================
+    // 📄 메인 페이지
+    // ========================================
+    function CalculatorPage() {
+      const initRef = React.useRef(null);
+      if (initRef.current === null) {
+        const p1 = { id: uid(), name: "" };
+        const p2 = { id: uid(), name: "" };
+        const participants = [p1, p2];
+        const rounds = [
+          { id: uid(), totalInput: "", discountType: "amount", discountValue: "", memberIds: [p1.id, p2.id] },
+        ];
+        initRef.current = { participants, rounds };
+      }
+
+      const [participants, setParticipants] = useState(initRef.current.participants);
+      const [rounds, setRounds] = useState(initRef.current.rounds);
+      const [activeRoundId, setActiveRoundId] = useState(() => initRef.current.rounds[0].id);
+
+      // 참가자
+      const addParticipant = useCallback(() => {
+        const np = { id: uid(), name: "" };
+        setParticipants((prev) => [...prev, np]);
+        setRounds((prev) => prev.map((r) => ({ ...r, memberIds: [...r.memberIds, np.id] })));
+      }, []);
+      const updateParticipant = useCallback((id, updated) => {
+        setParticipants((prev) => prev.map((p) => (p.id === id ? updated : p)));
+      }, []);
+      const removeParticipant = useCallback((id) => {
+        setParticipants((prev) => (prev.length <= 1 ? prev : prev.filter((p) => p.id !== id)));
+        setRounds((prev) => prev.map((r) => ({ ...r, memberIds: r.memberIds.filter((mid) => mid !== id) })));
+      }, []);
+
+      // 차수
+      const addRound = useCallback(() => {
+        const nr = { id: uid(), totalInput: "", discountType: "amount", discountValue: "", memberIds: participants.map((p) => p.id) };
+        setRounds((prev) => [...prev, nr]);
+        setActiveRoundId(nr.id);
+      }, [participants]);
+      const updateRound = useCallback((id, updated) => {
+        setRounds((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      }, []);
+      const removeRound = useCallback((id) => {
+        setRounds((prev) => (prev.length <= 1 ? prev : prev.filter((r) => r.id !== id)));
+      }, []);
+
+      const activeRound = rounds.find((r) => r.id === activeRoundId) || rounds[0];
+      if (activeRound && activeRound.id !== activeRoundId) setActiveRoundId(activeRound.id);
+
+      const roundCalcs = useMemo(() => rounds.map((r) => calcRound(r, participants)), [rounds, participants]);
+      const activeIndex = rounds.findIndex((r) => r.id === activeRound.id);
+
+      return (
+        <div className="min-h-screen bg-toss-bg flex justify-center">
+          <div className="w-full max-w-[480px] bg-white min-h-screen px-5 py-9 sm:py-12">
+            <Header />
+
+            {/* 참가자 */}
+            <section className="mb-8">
+              <SectionTitle title="참가자" desc="모임에 온 사람들을 등록하세요." />
+              <Card className="p-5 border border-toss-bg">
+                <div className="space-y-2.5">
+                  {participants.map((p, idx) => (
+                    <ParticipantRow key={p.id} participant={p} index={idx} total={participants.length}
+                      onChange={(u) => updateParticipant(p.id, u)} onRemove={() => removeParticipant(p.id)} />
+                  ))}
+                </div>
+                <Button variant="secondary" size="md" onClick={addParticipant} className="w-full mt-3">
+                  + 참가자 추가
+                </Button>
+              </Card>
+            </section>
+
+            {/* 차수별 계산 */}
+            <section className="mb-8">
+              <SectionTitle title="차수별 계산" desc="1차·2차로 나눠 금액·할인·참여자를 따로 넣어요." />
+              <RoundTabs rounds={rounds} activeId={activeRound.id} onSelect={setActiveRoundId} onAdd={addRound} />
+              <RoundPanel key={activeRound.id} round={activeRound} roundIndex={activeIndex}
+                participants={participants} totalRounds={rounds.length}
+                onUpdate={(u) => updateRound(activeRound.id, u)} onRemove={() => removeRound(activeRound.id)} />
+            </section>
+
+            {/* 전체 정산 */}
+            <section>
+              <SectionTitle title="전체 정산" desc="모든 차수를 합쳐 각자 낼 금액이에요." />
+              <SummaryPanel participants={participants} roundCalcs={roundCalcs} />
+            </section>
+
+            <footer className="text-center text-[12px] text-toss-g300 mt-9 pb-4">
+              차수마다 할인을 뺀 금액을 참여자끼리 나눠요.
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    function App() { return <CalculatorPage />; }
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

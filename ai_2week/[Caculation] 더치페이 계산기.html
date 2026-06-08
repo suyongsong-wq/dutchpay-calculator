@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>더치페이</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px);} to { opacity: 1; transform: translateY(0);} }
+    .animate-fade-in { animation: fadeIn 0.25s ease-out; }
+    @keyframes float1 { 0%,100% { transform: translate(0,0) scale(1);} 50% { transform: translate(30px,-20px) scale(1.1);} }
+    @keyframes float2 { 0%,100% { transform: translate(0,0) scale(1);} 50% { transform: translate(-25px,25px) scale(1.05);} }
+    @keyframes float3 { 0%,100% { transform: translate(0,0) scale(1);} 50% { transform: translate(20px,30px) scale(1.08);} }
+    .blob1 { animation: float1 14s ease-in-out infinite; }
+    .blob2 { animation: float2 18s ease-in-out infinite; }
+    .blob3 { animation: float3 16s ease-in-out infinite; }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+    body { font-family: 'Pretendard', -apple-system, system-ui, sans-serif; }
+    /* 유리 입력 필드 공통 */
+    .glass-input {
+      background: rgba(255,255,255,0.10);
+      border: 1px solid rgba(255,255,255,0.25);
+      color: #fff;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: all .2s ease;
+    }
+    .glass-input::placeholder { color: rgba(255,255,255,0.45); }
+    .glass-input:focus {
+      outline: none;
+      background: rgba(255,255,255,0.20);
+      border-color: rgba(255,255,255,0.65);
+      box-shadow: 0 0 0 3px rgba(255,255,255,0.12);
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo, useCallback } = React;
+
+    // ========================================
+    // 유틸리티
+    // ========================================
+    function formatWon(value) {
+      const n = Number(value);
+      if (!isFinite(n)) return "0원";
+      return Math.round(n).toLocaleString("ko-KR") + "원";
+    }
+    function toSafeNumber(value) {
+      const n = Number(value);
+      if (!isFinite(n) || isNaN(n) || n < 0) return 0;
+      return n;
+    }
+    let _idCounter = 0;
+    function uid() { _idCounter += 1; return Date.now().toString(36) + "_" + _idCounter; }
+
+    // ========================================
+    // 핵심 계산 로직 (차수 1개 N빵 + 할인)
+    // 배열 / 반복문 / 조건 분기 사용
+    // ========================================
+    function calcRound(round, participants) {
+      const total = toSafeNumber(round.totalInput);
+      const rawDiscount = toSafeNumber(round.discountValue);
+      let discount = 0;
+      if (total > 0 && rawDiscount > 0) {
+        if (round.discountType === "percent") {
+          const pct = Math.min(rawDiscount, 100);
+          discount = total * (pct / 100);
+        } else {
+          discount = Math.min(rawDiscount, total);
+        }
+      }
+      const finalTotal = Math.round(Math.max(total - discount, 0));
+      const members = participants.filter((p) => round.memberIds.includes(p.id));
+      const n = members.length;
+      const baseShare = n > 0 ? Math.floor(finalTotal / n) : 0;
+      const remainder = n > 0 ? finalTotal - baseShare * n : 0;
+      const shares = members.map((p, idx) => {
+        const extra = idx < remainder ? 1 : 0;
+        return { id: p.id, name: p.name, extra, pay: baseShare + extra };
+      });
+      return { total, discount, finalTotal, members, n, baseShare, remainder, shares };
+    }
+
+    // ========================================
+    // 🪟 글래스모피즘 디자인 시스템
+    // ========================================
+    function GlassCard({ className = "", children }) {
+      return (
+        <div className={`rounded-3xl border border-white/20 bg-white/10 backdrop-blur-xl shadow-[0_8px_32px_rgba(31,38,135,0.2)] ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    function Button({ variant = "primary", size = "md", disabled = false, onClick, className = "", children, ...rest }) {
+      const base = "inline-flex items-center justify-center font-bold rounded-2xl transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none";
+      const variants = {
+        primary: "bg-white/25 hover:bg-white/35 text-white border border-white/30 backdrop-blur-md",
+        secondary: "bg-white/10 hover:bg-white/20 text-white border border-white/25 backdrop-blur-md",
+        danger: "bg-transparent text-white/60 hover:text-rose-200 hover:bg-white/10",
+      };
+      const sizes = { sm: "text-[13px] px-3 py-2", md: "text-[15px] px-4 py-3", lg: "text-base px-5 py-4" };
+      return (
+        <button disabled={disabled} onClick={onClick}
+          className={`${base} ${variants[variant]} ${sizes[size]} ${className}`} {...rest}>
+          {children}
+        </button>
+      );
+    }
+
+    function Field({ label, suffix, className = "", align = "left", ...rest }) {
+      return (
+        <label className="block">
+          {label && <span className="block text-[13px] font-semibold text-white/70 mb-2">{label}</span>}
+          <div className="relative">
+            <input
+              className={`glass-input w-full rounded-2xl px-4 py-3.5 text-[16px] font-semibold
+                ${suffix ? "pr-10" : ""} ${align === "right" ? "text-right" : ""} ${className}`}
+              {...rest}
+            />
+            {suffix && (
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[15px] font-semibold text-white/60 pointer-events-none">{suffix}</span>
+            )}
+          </div>
+        </label>
+      );
+    }
+
+    function Segmented({ options, value, onChange }) {
+      return (
+        <div className="inline-flex rounded-2xl bg-white/10 border border-white/20 p-1 backdrop-blur-md" role="tablist">
+          {options.map((opt) => {
+            const active = opt.value === value;
+            return (
+              <button key={opt.value} role="tab" aria-selected={active} onClick={() => onChange(opt.value)}
+                className={`px-3.5 py-2 text-[14px] font-bold rounded-xl transition-all
+                  ${active ? "bg-white/90 text-violet-700 shadow" : "text-white/70 hover:text-white"}`}>
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 공통
+    // ========================================
+    function Header() {
+      return (
+        <header className="px-1 mb-7">
+          <span className="inline-flex items-center gap-1.5 text-[13px] font-bold text-white/90 bg-white/15 border border-white/25 rounded-full px-3 py-1 mb-3 backdrop-blur-md">
+            ✨ 간편 정산
+          </span>
+          <h1 className="text-[28px] leading-[1.3] font-extrabold text-white drop-shadow-sm">
+            오늘 모임,<br />깔끔하게 나눠요
+          </h1>
+          <p className="text-[14px] text-white/70 mt-2.5">차수별로 금액을 나누고 각자 낼 돈을 계산해요.</p>
+        </header>
+      );
+    }
+
+    function SectionTitle({ title, desc }) {
+      return (
+        <div className="px-1 mb-3">
+          <h2 className="text-[18px] font-bold text-white">{title}</h2>
+          {desc && <p className="text-[13px] text-white/60 mt-1">{desc}</p>}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 참가자 한 줄
+    // ========================================
+    function ParticipantRow({ participant, index, total, onChange, onRemove }) {
+      return (
+        <div className="flex items-center gap-3 animate-fade-in">
+          <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-white/20 border border-white/30 text-white font-bold text-[13px] backdrop-blur-md">
+            {index + 1}
+          </span>
+          <input
+            aria-label="참가자 이름"
+            placeholder={`참가자 ${index + 1}`}
+            value={participant.name}
+            onChange={(e) => onChange({ ...participant, name: e.target.value })}
+            className="glass-input flex-1 rounded-2xl px-4 py-3 text-[15px] font-semibold"
+          />
+          <button
+            onClick={onRemove}
+            disabled={total <= 1}
+            title={total <= 1 ? "최소 1명은 필요해요" : "삭제"}
+            className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-white/50 hover:bg-white/15 hover:text-rose-200 disabled:opacity-25 disabled:hover:bg-transparent transition-colors text-lg"
+          >
+            ✕
+          </button>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 차수 탭
+    // ========================================
+    function RoundTabs({ rounds, activeId, onSelect, onAdd }) {
+      return (
+        <div className="flex items-center gap-2 flex-wrap mb-3 px-1">
+          {rounds.map((r, idx) => {
+            const active = r.id === activeId;
+            return (
+              <button key={r.id} onClick={() => onSelect(r.id)}
+                className={`px-4 py-2 rounded-full text-[14px] font-bold transition-all border backdrop-blur-md
+                  ${active ? "bg-white/90 text-violet-700 border-white/60 shadow" : "bg-white/10 text-white/70 border-white/25 hover:bg-white/20"}`}>
+                {idx + 1}차
+              </button>
+            );
+          })}
+          <button onClick={onAdd}
+            className="px-3.5 py-2 rounded-full text-[14px] font-bold text-white bg-white/15 border border-dashed border-white/40 hover:bg-white/25 transition-all backdrop-blur-md">
+            + 차수
+          </button>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 참가자 선택 칩
+    // ========================================
+    function MemberChips({ participants, memberIds, onToggle }) {
+      return (
+        <div className="flex flex-wrap gap-2">
+          {participants.map((p, idx) => {
+            const on = memberIds.includes(p.id);
+            return (
+              <button key={p.id} onClick={() => onToggle(p.id)}
+                className={`px-3.5 py-2 rounded-full text-[13px] font-bold transition-all border backdrop-blur-md
+                  ${on ? "bg-white/85 text-violet-700 border-white/60" : "bg-white/5 text-white/55 border-white/20 hover:bg-white/15"}`}>
+                {on ? "✓ " : ""}{p.name || `참가자 ${idx + 1}`}
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧩 차수별 편집 패널
+    // ========================================
+    function RoundPanel({ round, roundIndex, participants, totalRounds, onUpdate, onRemove }) {
+      const calc = calcRound(round, participants);
+      const toggleMember = (pid) => {
+        const memberIds = round.memberIds.includes(pid)
+          ? round.memberIds.filter((id) => id !== pid)
+          : [...round.memberIds, pid];
+        onUpdate({ ...round, memberIds });
+      };
+
+      return (
+        <GlassCard className="p-5 animate-fade-in">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-[17px] font-bold text-white">{roundIndex + 1}차</h3>
+            <button onClick={onRemove} disabled={totalRounds <= 1}
+              className="text-[13px] font-semibold text-white/55 hover:text-rose-200 disabled:opacity-30 transition-colors">
+              차수 삭제
+            </button>
+          </div>
+
+          {/* 금액 */}
+          <div className="mb-4">
+            <Field label="이 차수 금액" type="number" min="0" inputMode="numeric"
+              placeholder="0" suffix="원" align="right"
+              value={round.totalInput}
+              onChange={(e) => onUpdate({ ...round, totalInput: e.target.value })} />
+          </div>
+
+          {/* 할인 */}
+          <div className="mb-5">
+            <span className="block text-[13px] font-semibold text-white/70 mb-2">할인</span>
+            <div className="flex gap-2">
+              <Segmented value={round.discountType}
+                onChange={(v) => onUpdate({ ...round, discountType: v })}
+                options={[{ value: "amount", label: "원" }, { value: "percent", label: "%" }]} />
+              <input aria-label="할인 값" type="number" min="0" inputMode="numeric" placeholder="0"
+                value={round.discountValue}
+                onChange={(e) => onUpdate({ ...round, discountValue: e.target.value })}
+                className="glass-input flex-1 rounded-2xl px-4 py-2.5 text-[15px] font-semibold text-right" />
+            </div>
+          </div>
+
+          {/* 참여자 */}
+          <div className="mb-5">
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="text-[13px] font-semibold text-white/70">이 차수 참여자</span>
+              <span className="text-[13px] font-semibold text-white/70">{calc.n}명</span>
+            </div>
+            {participants.length === 0 ? (
+              <p className="text-[13px] text-white/45">먼저 참가자를 추가하세요.</p>
+            ) : (
+              <MemberChips participants={participants} memberIds={round.memberIds} onToggle={toggleMember} />
+            )}
+          </div>
+
+          {/* 차수별 결과 */}
+          <div className="rounded-2xl bg-white/10 border border-white/20 p-4 backdrop-blur-md">
+            {calc.finalTotal <= 0 || calc.n === 0 ? (
+              <p className="text-[13px] text-white/60 text-center">금액과 참여자를 입력하면 1인당 금액이 보여요.</p>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[12px] text-white/65">
+                    {formatWon(calc.total)}
+                    {calc.discount > 0 && <span className="text-rose-200"> − {formatWon(calc.discount)}</span>}
+                  </p>
+                  <p className="text-[13px] font-semibold text-white/85 mt-0.5">{calc.n}명이 나눠요</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[12px] text-white/65">1인당</p>
+                  <p className="text-[20px] font-extrabold text-cyan-200 leading-tight drop-shadow">{formatWon(calc.baseShare)}</p>
+                  {calc.remainder > 0 && <p className="text-[11px] text-white/60">일부 +1원</p>}
+                </div>
+              </div>
+            )}
+          </div>
+        </GlassCard>
+      );
+    }
+
+    // ========================================
+    // 🧩 전체 합산 결과
+    // ========================================
+    function SummaryPanel({ participants, roundCalcs }) {
+      const grandTotal = roundCalcs.reduce((sum, c) => sum + c.finalTotal, 0);
+      const perPerson = participants.map((p) => {
+        let total = 0;
+        const breakdown = roundCalcs.map((c, rIdx) => {
+          const share = c.shares.find((s) => s.id === p.id);
+          const pay = share ? share.pay : 0;
+          total += pay;
+          return { roundIndex: rIdx, pay, joined: !!share };
+        });
+        return { id: p.id, name: p.name, total, breakdown };
+      });
+
+      return (
+        <GlassCard className="p-5">
+          <div className="mb-5">
+            <p className="text-[14px] font-semibold text-white/70">전체 합계 (모든 차수)</p>
+            <p className="text-[34px] font-extrabold text-white mt-1 drop-shadow-sm">{formatWon(grandTotal)}</p>
+          </div>
+
+          {grandTotal <= 0 ? (
+            <div className="rounded-2xl bg-white/10 border border-white/20 p-6 text-center backdrop-blur-md">
+              <p className="text-[14px] text-white/65">각 차수의 금액과 참여자를 입력하면<br />각자 낼 금액이 합산돼요.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-white/15">
+              {perPerson.map((p, i) => (
+                <div key={p.id} className="py-3.5 first:pt-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-full bg-white/20 border border-white/30 text-white text-[14px] font-bold backdrop-blur-md">
+                        {(p.name || "?").trim().charAt(0) || (i + 1)}
+                      </span>
+                      <p className="text-[15px] font-bold text-white truncate">{p.name || `참가자 ${i + 1}`}</p>
+                    </div>
+                    <p className="text-[18px] font-extrabold text-white flex-shrink-0 ml-3">{formatWon(p.total)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-2 pl-12">
+                    {p.breakdown.map((b) => (
+                      <span key={b.roundIndex}
+                        className={`text-[11px] font-semibold rounded-md px-2 py-0.5 border
+                          ${b.joined ? "bg-white/15 text-white/85 border-white/20" : "bg-white/5 text-white/40 border-white/10"}`}>
+                        {b.roundIndex + 1}차 {b.joined ? formatWon(b.pay) : "불참"}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </GlassCard>
+      );
+    }
+
+    // ========================================
+    // 📄 메인 페이지
+    // ========================================
+    function CalculatorPage() {
+      const initRef = React.useRef(null);
+      if (initRef.current === null) {
+        const p1 = { id: uid(), name: "" };
+        const p2 = { id: uid(), name: "" };
+        const participants = [p1, p2];
+        const rounds = [
+          { id: uid(), totalInput: "", discountType: "amount", discountValue: "", memberIds: [p1.id, p2.id] },
+        ];
+        initRef.current = { participants, rounds };
+      }
+
+      const [participants, setParticipants] = useState(initRef.current.participants);
+      const [rounds, setRounds] = useState(initRef.current.rounds);
+      const [activeRoundId, setActiveRoundId] = useState(() => initRef.current.rounds[0].id);
+
+      const addParticipant = useCallback(() => {
+        const np = { id: uid(), name: "" };
+        setParticipants((prev) => [...prev, np]);
+        setRounds((prev) => prev.map((r) => ({ ...r, memberIds: [...r.memberIds, np.id] })));
+      }, []);
+      const updateParticipant = useCallback((id, updated) => {
+        setParticipants((prev) => prev.map((p) => (p.id === id ? updated : p)));
+      }, []);
+      const removeParticipant = useCallback((id) => {
+        setParticipants((prev) => (prev.length <= 1 ? prev : prev.filter((p) => p.id !== id)));
+        setRounds((prev) => prev.map((r) => ({ ...r, memberIds: r.memberIds.filter((mid) => mid !== id) })));
+      }, []);
+
+      const addRound = useCallback(() => {
+        const nr = { id: uid(), totalInput: "", discountType: "amount", discountValue: "", memberIds: participants.map((p) => p.id) };
+        setRounds((prev) => [...prev, nr]);
+        setActiveRoundId(nr.id);
+      }, [participants]);
+      const updateRound = useCallback((id, updated) => {
+        setRounds((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      }, []);
+      const removeRound = useCallback((id) => {
+        setRounds((prev) => (prev.length <= 1 ? prev : prev.filter((r) => r.id !== id)));
+      }, []);
+
+      const activeRound = rounds.find((r) => r.id === activeRoundId) || rounds[0];
+      if (activeRound && activeRound.id !== activeRoundId) setActiveRoundId(activeRound.id);
+
+      const roundCalcs = useMemo(() => rounds.map((r) => calcRound(r, participants)), [rounds, participants]);
+      const activeIndex = rounds.findIndex((r) => r.id === activeRound.id);
+
+      return (
+        <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-violet-600 via-indigo-600 to-fuchsia-600">
+          {/* 떠다니는 컬러 블롭 (글래스 뒤 배경) */}
+          <div className="blob1 pointer-events-none absolute -top-24 -left-20 w-80 h-80 rounded-full bg-pink-400/50 blur-3xl"></div>
+          <div className="blob2 pointer-events-none absolute top-1/3 -right-24 w-96 h-96 rounded-full bg-cyan-400/40 blur-3xl"></div>
+          <div className="blob3 pointer-events-none absolute bottom-0 left-1/4 w-80 h-80 rounded-full bg-fuchsia-300/40 blur-3xl"></div>
+
+          <div className="relative max-w-[480px] mx-auto px-5 py-10 sm:py-12">
+            <Header />
+
+            {/* 참가자 */}
+            <section className="mb-8">
+              <SectionTitle title="참가자" desc="모임에 온 사람들을 등록하세요." />
+              <GlassCard className="p-5">
+                <div className="space-y-2.5">
+                  {participants.map((p, idx) => (
+                    <ParticipantRow key={p.id} participant={p} index={idx} total={participants.length}
+                      onChange={(u) => updateParticipant(p.id, u)} onRemove={() => removeParticipant(p.id)} />
+                  ))}
+                </div>
+                <Button variant="secondary" size="md" onClick={addParticipant} className="w-full mt-3">
+                  + 참가자 추가
+                </Button>
+              </GlassCard>
+            </section>
+
+            {/* 차수별 계산 */}
+            <section className="mb-8">
+              <SectionTitle title="차수별 계산" desc="1차·2차로 나눠 금액·할인·참여자를 따로 넣어요." />
+              <RoundTabs rounds={rounds} activeId={activeRound.id} onSelect={setActiveRoundId} onAdd={addRound} />
+              <RoundPanel key={activeRound.id} round={activeRound} roundIndex={activeIndex}
+                participants={participants} totalRounds={rounds.length}
+                onUpdate={(u) => updateRound(activeRound.id, u)} onRemove={() => removeRound(activeRound.id)} />
+            </section>
+
+            {/* 전체 정산 */}
+            <section>
+              <SectionTitle title="전체 정산" desc="모든 차수를 합쳐 각자 낼 금액이에요." />
+              <SummaryPanel participants={participants} roundCalcs={roundCalcs} />
+            </section>
+
+            <footer className="text-center text-[12px] text-white/50 mt-9 pb-4">
+              차수마다 할인을 뺀 금액을 참여자끼리 나눠요.
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    function App() { return <CalculatorPage />; }
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
