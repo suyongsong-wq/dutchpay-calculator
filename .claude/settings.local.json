@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Read(//Users/suyong/.claude/agents/**)"
+      "Read(//Users/suyong/.claude/agents/**)",
+      "Bash(screencapture -x /tmp/dp.png)",
+      "Bash(echo \"exit=$?\")",
+      "Read(//tmp/**)"
     ]
   }
 }

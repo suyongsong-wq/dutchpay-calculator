@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF 생성기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- html2canvas: renders the styled DOM (with full Korean font support) to a canvas -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <!-- jsPDF: builds the PDF from the captured canvas images -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <style>
+    :root {
+      --acrobat-red: #EB1000;
+      --acrobat-red-dark: #B30B00;
+      --acrobat-toolbar: #2B2B2B;
+      --acrobat-viewer: #525659;
+    }
+    body {
+      font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+        "Malgun Gothic", "맑은 고딕", sans-serif;
+    }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in-up { animation: fadeInUp 0.5s ease-out both; }
+
+    /* Range slider — Acrobat red */
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      height: 6px;
+      border-radius: 9999px;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 22px; height: 22px;
+      border-radius: 9999px;
+      background: #ffffff;
+      border: 3px solid var(--acrobat-red);
+      box-shadow: 0 2px 6px rgba(235,16,0,0.4);
+      cursor: pointer;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 22px; height: 22px;
+      border-radius: 9999px;
+      background: #ffffff;
+      border: 3px solid var(--acrobat-red);
+      box-shadow: 0 2px 6px rgba(235,16,0,0.4);
+      cursor: pointer;
+    }
+    /* The preview/capture page mimics an A4 sheet. The body text is rendered
+       as real DOM so html2canvas captures Korean glyphs perfectly. */
+    .pdf-page {
+      background: #ffffff;
+      color: #1f2937;
+      box-sizing: border-box;
+    }
+    .pdf-body { white-space: pre-wrap; word-break: break-word; line-height: 1.7; }
+  </style>
+</head>
+<body class="bg-[#EDEDED] min-h-screen text-gray-900">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+    const ACROBAT_RED = "#EB1000";
+
+    // A4 dimensions in millimetres (used by jsPDF) and a px capture width.
+    const A4 = { w: 210, h: 297 };
+    // Capture width in CSS px for the on-screen sheet (scaled up at capture time).
+    const PAGE_PX_WIDTH = 794; // ~ A4 width at 96dpi
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+
+    function Button({ variant = "primary", size = "md", disabled = false, onClick, className = "", children, type = "button", title }) {
+      const base = "inline-flex items-center justify-center gap-2 font-bold rounded-lg transition-all duration-150 focus:outline-none focus:ring-2 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]";
+      const variants = {
+        primary: "bg-[#EB1000] text-white hover:bg-[#B30B00] shadow-sm focus:ring-[#EB1000]/30",
+        secondary: "bg-white text-gray-700 border border-[#DADADA] hover:bg-gray-50 hover:border-[#EB1000] focus:ring-[#EB1000]/20",
+        ghost: "bg-transparent text-[#EB1000] hover:bg-[#EB1000]/10 focus:ring-[#EB1000]/20",
+      };
+      const sizes = {
+        sm: "px-3 py-1.5 text-sm",
+        md: "px-5 py-2.5 text-sm",
+        lg: "px-6 py-3.5 text-base",
+      };
+      return (
+        <button type={type} title={title} disabled={disabled} onClick={onClick}
+          className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}>
+          {children}
+        </button>
+      );
+    }
+
+    function Card({ className = "", children }) {
+      return (
+        <div className={`bg-white rounded-xl shadow-sm border border-[#EAEAEA] ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    function Label({ children, className = "" }) {
+      return <label className={`block text-sm font-bold text-gray-800 mb-2 ${className}`}>{children}</label>;
+    }
+
+    function Badge({ children, className = "" }) {
+      return (
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold ${className}`}>
+          {children}
+        </span>
+      );
+    }
+
+    // ========================================
+    // 🧩 Sub Components
+    // ========================================
+
+    // Segmented control used for alignment & font-family pickers.
+    function Segmented({ options, value, onChange, ariaLabel }) {
+      return (
+        <div role="group" aria-label={ariaLabel} className="flex gap-1.5 bg-gray-100 rounded-lg p-1">
+          {options.map((opt) => {
+            const active = value === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                title={opt.title}
+                onClick={() => onChange(opt.value)}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-bold transition-all duration-150 ${
+                  active ? "bg-white text-[#A30A00] shadow-sm" : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {opt.icon}{opt.label}
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    function ColorField({ label, value, onChange }) {
+      return (
+        <div>
+          <Label>{label}</Label>
+          <div className="flex items-center gap-3 bg-white border border-[#DADADA] rounded-lg p-2 pr-3 focus-within:border-[#EB1000] transition-colors">
+            <input
+              type="color"
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              className="w-10 h-10 rounded-lg border-0 cursor-pointer bg-transparent p-0"
+              aria-label={label}
+            />
+            <input
+              type="text"
+              value={value.toUpperCase()}
+              onChange={(e) => { const v = e.target.value; if (/^#([0-9a-fA-F]{0,6})$/.test(v)) onChange(v); }}
+              className="flex-1 min-w-0 bg-transparent text-sm font-mono text-gray-700 focus:outline-none uppercase"
+              spellCheck={false}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧭 Header (Adobe Acrobat-style dark toolbar)
+    // ========================================
+
+    function Header() {
+      return (
+        <header className="sticky top-0 z-20 bg-[#2B2B2B] border-b border-black/40 shadow-md">
+          <div className="max-w-6xl mx-auto px-4 h-14 flex items-center gap-3">
+            {/* Adobe Acrobat-style red app icon */}
+            <div className="flex items-center justify-center w-8 h-8 rounded-[7px] bg-gradient-to-b from-[#F23F2C] to-[#D5170B] shadow-sm ring-1 ring-black/20">
+              <span className="text-white font-black text-[11px] tracking-tight leading-none">PDF</span>
+            </div>
+            <span className="text-white font-bold text-base tracking-tight">Acrobat <span className="text-white/50 font-medium">PDF 생성기</span></span>
+            <span className="ml-auto hidden sm:flex items-center gap-1.5 text-white/55 text-xs font-medium">
+              <svg className="w-3.5 h-3.5 text-[#EB1000]" fill="currentColor" viewBox="0 0 20 20"><path d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/></svg>
+              한글 지원 · 무료
+            </span>
+          </div>
+        </header>
+      );
+    }
+
+    // ========================================
+    // 📄 PDF Page (the WYSIWYG sheet that gets captured)
+    // ========================================
+
+    const FONT_STACKS = {
+      sans: '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif',
+      serif: '"Nanum Myeongjo", "Batang", "바탕", serif',
+    };
+
+    // forwardRef so the parent can grab the DOM node for html2canvas capture.
+    const PdfSheet = React.forwardRef(function PdfSheet(
+      { title, body, options, widthPx, paddingPx, screen = false },
+      ref
+    ) {
+      const { fontFamily, titleSize, bodySize, align, titleColor, bodyColor, showDate, lineHeight } = options;
+      const todayStr = useMemo(() => {
+        const d = new Date();
+        return `${d.getFullYear()}. ${String(d.getMonth() + 1).padStart(2, "0")}. ${String(d.getDate()).padStart(2, "0")}`;
+      }, []);
+
+      // Maintain A4 aspect ratio for the on-screen sheet (min height).
+      const minHeight = screen ? widthPx * (A4.h / A4.w) : undefined;
+
+      return (
+        <div
+          ref={ref}
+          className="pdf-page"
+          style={{
+            width: widthPx,
+            minHeight,
+            padding: paddingPx,
+            fontFamily: FONT_STACKS[fontFamily],
+            textAlign: align,
+          }}
+        >
+          {(title.trim() || showDate) && (
+            <div style={{ marginBottom: bodySize * 1.6, textAlign: align }}>
+              {title.trim() && (
+                <h1 style={{
+                  fontSize: titleSize,
+                  fontWeight: 800,
+                  color: titleColor,
+                  lineHeight: 1.3,
+                  margin: 0,
+                  wordBreak: "break-word",
+                }}>
+                  {title}
+                </h1>
+              )}
+              {showDate && (
+                <div style={{ fontSize: bodySize * 0.82, color: "#9ca3af", marginTop: title.trim() ? 8 : 0 }}>
+                  {todayStr}
+                </div>
+              )}
+              {title.trim() && (
+                <div style={{
+                  height: 3,
+                  background: ACROBAT_RED,
+                  width: 56,
+                  marginTop: 14,
+                  marginLeft: align === "right" ? "auto" : (align === "center" ? "auto" : 0),
+                  marginRight: align === "right" ? 0 : (align === "center" ? "auto" : "auto"),
+                }} />
+              )}
+            </div>
+          )}
+
+          <div
+            className="pdf-body"
+            style={{
+              fontSize: bodySize,
+              color: bodyColor,
+              lineHeight: lineHeight,
+              textAlign: align,
+            }}
+          >
+            {body.trim()
+              ? body
+              : (screen ? <span style={{ color: "#cbd5e1" }}>본문 내용이 여기에 표시됩니다…</span> : "")}
+          </div>
+        </div>
+      );
+    });
+
+    // ========================================
+    // 🚀 App Component
+    // ========================================
+
+    function App() {
+      const [title, setTitle] = useState("문서 제목을 입력하세요");
+      const [body, setBody] = useState(
+        "여기에 본문 내용을 작성하세요.\n\n이 PDF 생성기는 한글을 완벽하게 지원합니다. 화면에 보이는 그대로 PDF로 저장돼요 (WYSIWYG).\n\n- 제목과 본문을 입력하고\n- 글꼴, 크기, 정렬, 색상을 자유롭게 바꾼 뒤\n- 'PDF 다운로드' 버튼을 누르면 끝!\n\n내용이 길어지면 자동으로 여러 페이지로 나뉩니다."
+      );
+
+      const [fontFamily, setFontFamily] = useState("sans");
+      const [titleSize, setTitleSize] = useState(30);
+      const [bodySize, setBodySize] = useState(16);
+      const [lineHeight, setLineHeight] = useState(1.7);
+      const [align, setAlign] = useState("left");
+      const [titleColor, setTitleColor] = useState("#111827");
+      const [bodyColor, setBodyColor] = useState("#374151");
+      const [showDate, setShowDate] = useState(true);
+      const [margin, setMargin] = useState("normal"); // narrow | normal | wide
+
+      const [generating, setGenerating] = useState(false);
+      const [libReady, setLibReady] = useState(false);
+      const [error, setError] = useState(null);
+
+      const sheetRef = useRef(null);       // on-screen preview
+      const captureRef = useRef(null);     // off-screen full-quality capture node
+
+      // Confirm CDN libraries loaded.
+      useEffect(() => {
+        const ok = !!(window.html2canvas && window.jspdf && window.jspdf.jsPDF);
+        setLibReady(ok);
+        if (!ok) setError("PDF 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 새로고침해주세요.");
+      }, []);
+
+      const paddingPx = useMemo(() => {
+        // A4 width 794px -> padding scaled to chosen margin.
+        if (margin === "narrow") return 48;
+        if (margin === "wide") return 110;
+        return 72;
+      }, [margin]);
+
+      const options = useMemo(() => ({
+        fontFamily, titleSize, bodySize, lineHeight, align, titleColor, bodyColor, showDate,
+      }), [fontFamily, titleSize, bodySize, lineHeight, align, titleColor, bodyColor, showDate]);
+
+      const previewWidth = useMemo(() => {
+        // Scale the preview sheet relative to the editor body size so the
+        // on-screen preview matches the captured output proportionally.
+        return PAGE_PX_WIDTH;
+      }, []);
+
+      const hasContent = title.trim().length > 0 || body.trim().length > 0;
+
+      const safeFileName = useMemo(() => {
+        const base = (title.trim() || "document").replace(/[^\w가-힣-]+/g, "_").slice(0, 40);
+        return `${base || "document"}.pdf`;
+      }, [title]);
+
+      // ----------------------------------------
+      // PDF generation: render a hidden full-width sheet, capture it with
+      // html2canvas (Korean-safe because it rasterises real DOM text), then
+      // slice the tall canvas into A4 pages inside jsPDF.
+      // ----------------------------------------
+      const handleDownload = useCallback(async () => {
+        if (!libReady || !captureRef.current) return;
+        setGenerating(true);
+        setError(null);
+        try {
+          // Wait for webfonts so glyphs render before capture.
+          if (document.fonts && document.fonts.ready) {
+            await document.fonts.ready;
+          }
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+          const node = captureRef.current;
+          const canvas = await window.html2canvas(node, {
+            scale: 2,               // crisp output
+            backgroundColor: "#ffffff",
+            useCORS: true,
+            logging: false,
+            windowWidth: node.scrollWidth,
+          });
+
+          const { jsPDF } = window.jspdf;
+          const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
+          const pageW = A4.w;
+          const pageH = A4.h;
+
+          // Full image scaled to A4 width.
+          const imgWmm = pageW;
+          const imgHmm = (canvas.height * imgWmm) / canvas.width;
+
+          if (imgHmm <= pageH) {
+            // Single page.
+            pdf.addImage(canvas, "JPEG", 0, 0, imgWmm, imgHmm, undefined, "FAST");
+          } else {
+            // Multi-page: slice the source canvas vertically per A4 page height.
+            const pageHpx = Math.floor((pageH * canvas.width) / pageW);
+            let renderedPx = 0;
+            let pageIndex = 0;
+            while (renderedPx < canvas.height) {
+              const sliceHpx = Math.min(pageHpx, canvas.height - renderedPx);
+              const pageCanvas = document.createElement("canvas");
+              pageCanvas.width = canvas.width;
+              pageCanvas.height = sliceHpx;
+              const ctx = pageCanvas.getContext("2d");
+              ctx.fillStyle = "#ffffff";
+              ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+              ctx.drawImage(
+                canvas,
+                0, renderedPx, canvas.width, sliceHpx,
+                0, 0, canvas.width, sliceHpx
+              );
+              const sliceHmm = (sliceHpx * imgWmm) / canvas.width;
+              if (pageIndex > 0) pdf.addPage();
+              pdf.addImage(pageCanvas, "JPEG", 0, 0, imgWmm, sliceHmm, undefined, "FAST");
+              renderedPx += sliceHpx;
+              pageIndex += 1;
+            }
+          }
+
+          pdf.save(safeFileName);
+        } catch (e) {
+          console.error(e);
+          setError("PDF 생성 중 오류가 발생했습니다. 다시 시도해주세요.");
+        } finally {
+          setGenerating(false);
+        }
+      }, [libReady, safeFileName]);
+
+      const alignOptions = [
+        { value: "left", title: "왼쪽 정렬", icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" d="M4 6h16M4 12h10M4 18h13" /></svg>
+        )},
+        { value: "center", title: "가운데 정렬", icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" d="M4 6h16M7 12h10M5 18h14" /></svg>
+        )},
+        { value: "right", title: "오른쪽 정렬", icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" d="M4 6h16M10 12h10M7 18h13" /></svg>
+        )},
+        { value: "justify", title: "양쪽 정렬", icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
+        )},
+      ];
+
+      const fontOptions = [
+        { value: "sans", label: "고딕" },
+        { value: "serif", label: "명조" },
+      ];
+
+      const marginOptions = [
+        { value: "narrow", label: "좁게" },
+        { value: "normal", label: "보통" },
+        { value: "wide", label: "넓게" },
+      ];
+
+      return (
+        <div className="min-h-screen">
+          <Header />
+
+          <main className="px-4 py-8 sm:py-10">
+            <div className="max-w-6xl mx-auto">
+
+              {/* Intro */}
+              <div className="text-center mb-8 animate-fade-in-up">
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-gray-900">
+                  텍스트를 PDF로 변환하기
+                </h1>
+                <p className="mt-2 text-gray-500 text-sm sm:text-base">
+                  제목과 본문을 입력하면 실시간 미리보기로 확인하고, 화면 그대로 PDF로 저장할 수 있어요. 한글도 완벽 지원!
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+
+                {/* ===== Left: Editor & controls ===== */}
+                <div className="lg:col-span-3 space-y-6">
+
+                  {/* Editor */}
+                  <Card className="p-6 sm:p-8 animate-fade-in-up">
+                    <div className="mb-5">
+                      <Label>제목</Label>
+                      <input
+                        type="text"
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        placeholder="문서 제목을 입력하세요"
+                        className="w-full bg-white border border-[#DADADA] rounded-lg px-4 py-3 text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#EB1000]/20 focus:border-[#EB1000] transition"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <Label className="mb-0">본문</Label>
+                        <span className="text-xs text-gray-400">{body.length.toLocaleString()}자</span>
+                      </div>
+                      <textarea
+                        value={body}
+                        onChange={(e) => setBody(e.target.value)}
+                        rows={12}
+                        placeholder="본문 내용을 작성하세요. 줄바꿈과 빈 줄도 그대로 반영됩니다."
+                        className="w-full resize-y bg-white border border-[#DADADA] rounded-lg px-4 py-3 text-gray-800 placeholder-gray-400 leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#EB1000]/20 focus:border-[#EB1000] transition"
+                        spellCheck={false}
+                      />
+                    </div>
+                  </Card>
+
+                  {/* Formatting options */}
+                  <Card className="p-6 sm:p-8 animate-fade-in-up">
+                    <h2 className="text-sm font-bold text-gray-500 mb-5">서식 옵션</h2>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                      <div>
+                        <Label>글꼴</Label>
+                        <Segmented options={fontOptions} value={fontFamily} onChange={setFontFamily} ariaLabel="글꼴" />
+                      </div>
+                      <div>
+                        <Label>여백</Label>
+                        <Segmented options={marginOptions} value={margin} onChange={setMargin} ariaLabel="여백" />
+                      </div>
+                    </div>
+
+                    <div className="mt-5">
+                      <Label>정렬</Label>
+                      <Segmented options={alignOptions} value={align} onChange={setAlign} ariaLabel="정렬" />
+                    </div>
+
+                    {/* Sliders */}
+                    <div className="mt-6 space-y-5">
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <Label className="mb-0">제목 크기</Label>
+                          <Badge className="bg-[#EB1000]/10 text-[#A30A00]">{titleSize}px</Badge>
+                        </div>
+                        <input type="range" min={18} max={48} step={1} value={titleSize}
+                          onChange={(e) => setTitleSize(Number(e.target.value))}
+                          className="w-full bg-[#EB1000]/20" aria-label="제목 크기" />
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <Label className="mb-0">본문 크기</Label>
+                          <Badge className="bg-[#EB1000]/10 text-[#A30A00]">{bodySize}px</Badge>
+                        </div>
+                        <input type="range" min={11} max={28} step={1} value={bodySize}
+                          onChange={(e) => setBodySize(Number(e.target.value))}
+                          className="w-full bg-[#EB1000]/20" aria-label="본문 크기" />
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <Label className="mb-0">줄 간격</Label>
+                          <Badge className="bg-[#EB1000]/10 text-[#A30A00]">{lineHeight.toFixed(1)}</Badge>
+                        </div>
+                        <input type="range" min={1.2} max={2.4} step={0.1} value={lineHeight}
+                          onChange={(e) => setLineHeight(Number(e.target.value))}
+                          className="w-full bg-[#EB1000]/20" aria-label="줄 간격" />
+                      </div>
+                    </div>
+
+                    {/* Colors */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+                      <ColorField label="제목 색상" value={titleColor} onChange={setTitleColor} />
+                      <ColorField label="본문 색상" value={bodyColor} onChange={setBodyColor} />
+                    </div>
+
+                    {/* Toggle */}
+                    <label className="mt-6 flex items-center justify-between cursor-pointer select-none">
+                      <span className="text-sm font-bold text-gray-800">오늘 날짜 표시</span>
+                      <span className="relative inline-flex">
+                        <input type="checkbox" checked={showDate} onChange={(e) => setShowDate(e.target.checked)} className="sr-only peer" />
+                        <span className="w-11 h-6 bg-gray-200 rounded-full peer-checked:bg-[#EB1000] transition-colors"></span>
+                        <span className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5"></span>
+                      </span>
+                    </label>
+                  </Card>
+                </div>
+
+                {/* ===== Right: Live preview ===== */}
+                <div className="lg:col-span-2">
+                  <Card className="p-5 sm:p-6 sticky top-20 animate-fade-in-up">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-sm font-bold text-gray-500">실시간 미리보기</h2>
+                      <Badge className="bg-gray-100 text-gray-500">A4</Badge>
+                    </div>
+
+                    {/* Scaled preview container — classic Acrobat viewer gray */}
+                    <div className="rounded-lg bg-[#525659] border border-black/30 p-4 overflow-auto" style={{ maxHeight: 520 }}>
+                      <div className="mx-auto shadow-lg" style={{ width: PAGE_PX_WIDTH, transform: "scale(0.42)", transformOrigin: "top center" }}>
+                        <PdfSheet
+                          ref={sheetRef}
+                          title={title}
+                          body={body}
+                          options={options}
+                          widthPx={previewWidth}
+                          paddingPx={paddingPx}
+                          screen
+                        />
+                      </div>
+                      {/* The scaled element leaves whitespace; pull layout up. */}
+                    </div>
+                    <p className="mt-2 text-xs text-gray-400 text-center">
+                      미리보기는 축소되어 표시됩니다. 실제 PDF는 고화질로 저장돼요.
+                    </p>
+
+                    {error && (
+                      <p className="mt-3 text-xs text-red-500 text-center">{error}</p>
+                    )}
+
+                    <div className="mt-5 space-y-2.5">
+                      <Button
+                        variant="primary"
+                        size="lg"
+                        onClick={handleDownload}
+                        disabled={!libReady || !hasContent || generating}
+                        className="w-full"
+                      >
+                        {generating ? (
+                          <>
+                            <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" />
+                            </svg>
+                            생성 중…
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                            </svg>
+                            PDF 다운로드
+                          </>
+                        )}
+                      </Button>
+                      <p className="text-center text-xs text-gray-400">
+                        파일명: <span className="font-mono text-gray-500">{safeFileName}</span>
+                      </p>
+                    </div>
+                  </Card>
+                </div>
+              </div>
+
+              <footer className="text-center mt-10 text-xs text-gray-400">
+                모든 처리는 브라우저 안에서만 이루어지며, 입력한 내용은 서버로 전송되지 않습니다.
+              </footer>
+            </div>
+          </main>
+
+          {/* Off-screen full-resolution capture node. Positioned off-canvas so it
+              never affects layout but is fully rendered for html2canvas. */}
+          <div aria-hidden="true" style={{ position: "fixed", left: -10000, top: 0, pointerEvents: "none", zIndex: -1 }}>
+            <PdfSheet
+              ref={captureRef}
+              title={title}
+              body={body}
+              options={options}
+              widthPx={PAGE_PX_WIDTH}
+              paddingPx={paddingPx}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

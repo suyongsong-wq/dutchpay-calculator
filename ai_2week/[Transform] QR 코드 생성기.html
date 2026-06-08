@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QR 코드 생성기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- qrcode-generator UMD build (provides global `qrcode`) -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+  <script>
+    // Ensure full UTF-8 (Korean / emoji) encoding in byte mode.
+    if (window.qrcode && typeof TextEncoder !== "undefined") {
+      qrcode.stringToBytes = function (s) {
+        return Array.prototype.slice.call(new TextEncoder().encode(s));
+      };
+    }
+    // Naver brand green available to Tailwind config.
+    tailwind = window.tailwind || {};
+  </script>
+  <style>
+    :root {
+      --naver-green: #03C75A;
+      --naver-green-dark: #02B350;
+    }
+    body {
+      font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+        "Malgun Gothic", "맑은 고딕", sans-serif;
+    }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in-up { animation: fadeInUp 0.5s ease-out both; }
+    /* Color input native swatch styling */
+    input[type="color"] {
+      -webkit-appearance: none;
+      appearance: none;
+      border: none;
+      cursor: pointer;
+      background: transparent;
+    }
+    input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+    input[type="color"]::-webkit-color-swatch { border: none; border-radius: 8px; }
+    /* Range slider — Naver green */
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      height: 6px;
+      border-radius: 9999px;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 9999px;
+      background: #ffffff;
+      border: 3px solid var(--naver-green);
+      box-shadow: 0 2px 6px rgba(3,199,90,0.4);
+      cursor: pointer;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 22px;
+      height: 22px;
+      border-radius: 9999px;
+      background: #ffffff;
+      border: 3px solid var(--naver-green);
+      box-shadow: 0 2px 6px rgba(3,199,90,0.4);
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body class="bg-[#F7F8FA] min-h-screen text-gray-900">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+    // Naver brand palette
+    const NAVER_GREEN = "#03C75A";
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+
+    function Button({ variant = "primary", size = "md", disabled = false, onClick, className = "", children, type = "button", title }) {
+      const base = "inline-flex items-center justify-center gap-2 font-bold rounded-lg transition-all duration-150 focus:outline-none focus:ring-2 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]";
+      const variants = {
+        primary: "bg-[#03C75A] text-white hover:bg-[#02B350] shadow-sm focus:ring-[#03C75A]/30",
+        secondary: "bg-white text-gray-700 border border-[#DADADA] hover:bg-gray-50 hover:border-[#03C75A] focus:ring-[#03C75A]/20",
+        ghost: "bg-transparent text-[#03C75A] hover:bg-[#03C75A]/10 focus:ring-[#03C75A]/20",
+      };
+      const sizes = {
+        sm: "px-3 py-1.5 text-sm",
+        md: "px-5 py-2.5 text-sm",
+        lg: "px-6 py-3.5 text-base",
+      };
+      return (
+        <button
+          type={type}
+          title={title}
+          disabled={disabled}
+          onClick={onClick}
+          className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    function Card({ className = "", children }) {
+      return (
+        <div className={`bg-white rounded-xl shadow-sm border border-[#EAEAEA] ${className}`}>
+          {children}
+        </div>
+      );
+    }
+
+    function Label({ children, className = "" }) {
+      return <label className={`block text-sm font-bold text-gray-800 mb-2 ${className}`}>{children}</label>;
+    }
+
+    function Badge({ children, className = "" }) {
+      return (
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold ${className}`}>
+          {children}
+        </span>
+      );
+    }
+
+    // ========================================
+    // 🧩 Sub Components
+    // ========================================
+
+    // Quick preset buttons that help format input
+    const PRESETS = [
+      { key: "url",   label: "🔗 URL",     hint: "예: https://example.com",         template: "https://" },
+      { key: "text",  label: "📝 텍스트",   hint: "원하는 문구를 입력하세요",          template: "" },
+      { key: "email", label: "✉️ 이메일",   hint: "예: mailto:name@example.com",     template: "mailto:" },
+      { key: "tel",   label: "📞 전화",     hint: "예: tel:01012345678",             template: "tel:" },
+      { key: "wifi",  label: "📶 WiFi",     hint: "WIFI:T:WPA;S:네트워크이름;P:비밀번호;;", template: "WIFI:T:WPA;S:;P:;;" },
+    ];
+
+    function PresetBar({ active, onSelect }) {
+      return (
+        <div className="flex flex-wrap gap-2">
+          {PRESETS.map((p) => {
+            const isActive = active === p.key;
+            return (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => onSelect(p)}
+                className={`px-3.5 py-2 rounded-lg text-sm font-bold transition-all duration-150 active:scale-95 ${
+                  isActive
+                    ? "bg-[#03C75A] text-white shadow-sm"
+                    : "bg-white text-gray-600 border border-[#DADADA] hover:border-[#03C75A] hover:text-[#03C75A]"
+                }`}
+              >
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    function ColorField({ label, value, onChange }) {
+      return (
+        <div>
+          <Label>{label}</Label>
+          <div className="flex items-center gap-3 bg-white border border-[#DADADA] rounded-lg p-2 pr-3 focus-within:border-[#03C75A] transition-colors">
+            <input
+              type="color"
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              className="w-11 h-11 rounded-lg"
+              aria-label={label}
+            />
+            <input
+              type="text"
+              value={value.toUpperCase()}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (/^#([0-9a-fA-F]{0,6})$/.test(v)) onChange(v);
+              }}
+              className="flex-1 min-w-0 bg-transparent text-sm font-mono text-gray-700 focus:outline-none uppercase"
+              spellCheck={false}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🧭 Header (Naver-style top bar)
+    // ========================================
+
+    function Header() {
+      return (
+        <header className="sticky top-0 z-20 bg-[#03C75A] shadow-sm">
+          <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-3">
+            {/* Logo mark */}
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-white">
+              <svg className="w-5 h-5 text-[#03C75A]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h6v6H3V3zm0 12h6v6H3v-6zM15 3h6v6h-6V3zm0 12h3v3m0 0v3h3v-3m-3 0h-3" />
+              </svg>
+            </div>
+            <span className="text-white font-extrabold text-lg tracking-tight">QR 코드 생성기</span>
+            <span className="ml-auto hidden sm:inline text-white/80 text-xs font-medium">실시간 생성 · 무료</span>
+          </div>
+        </header>
+      );
+    }
+
+    // ========================================
+    // 🚀 App Component
+    // ========================================
+
+    function App() {
+      const [text, setText] = useState("https://www.naver.com");
+      const [debouncedText, setDebouncedText] = useState(text);
+      const [size, setSize] = useState(320);
+      const [fgColor, setFgColor] = useState("#1F2937");
+      const [bgColor, setBgColor] = useState("#FFFFFF");
+      const [ecLevel, setEcLevel] = useState("M");
+      const [activePreset, setActivePreset] = useState("url");
+      const [hint, setHint] = useState("예: https://example.com");
+      const [copied, setCopied] = useState(false);
+      const [genError, setGenError] = useState(null);
+
+      const canvasRef = useRef(null);
+
+      // Debounce text input (live update)
+      useEffect(() => {
+        const id = setTimeout(() => setDebouncedText(text), 250);
+        return () => clearTimeout(id);
+      }, [text]);
+
+      const hasContent = debouncedText.trim().length > 0;
+
+      // Generate QR onto canvas whenever inputs change.
+      // We build the QR matrix with qrcode-generator and draw it ourselves so
+      // we get exact colors, crisp pixels, and a clean canvas for download/copy.
+      useEffect(() => {
+        if (!hasContent || !canvasRef.current) return;
+        if (typeof window.qrcode === "undefined") {
+          setGenError("QR 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.");
+          return;
+        }
+        try {
+          // typeNumber 0 = auto-fit the smallest version that holds the data
+          const qr = window.qrcode(0, ecLevel);
+          qr.addData(debouncedText);
+          qr.make();
+
+          const count = qr.getModuleCount();
+          const marginModules = 4; // quiet zone (standard is 4 modules)
+          const totalModules = count + marginModules * 2;
+          const cell = Math.max(1, Math.floor(size / totalModules));
+          const dim = cell * totalModules;
+
+          const canvas = canvasRef.current;
+          canvas.width = dim;
+          canvas.height = dim;
+          const ctx = canvas.getContext("2d");
+
+          // Background
+          ctx.fillStyle = bgColor;
+          ctx.fillRect(0, 0, dim, dim);
+
+          // Modules
+          ctx.fillStyle = fgColor;
+          for (let r = 0; r < count; r++) {
+            for (let c = 0; c < count; c++) {
+              if (qr.isDark(r, c)) {
+                ctx.fillRect(
+                  (c + marginModules) * cell,
+                  (r + marginModules) * cell,
+                  cell,
+                  cell
+                );
+              }
+            }
+          }
+          setGenError(null);
+        } catch (e) {
+          setGenError("QR 코드를 생성할 수 없습니다. 내용이 너무 길 수 있어요.");
+        }
+      }, [debouncedText, size, fgColor, bgColor, ecLevel, hasContent]);
+
+      const handlePreset = useCallback((preset) => {
+        setActivePreset(preset.key);
+        setHint(preset.hint);
+        setText(preset.template);
+      }, []);
+
+      const safeFileName = useMemo(() => {
+        const base = debouncedText.trim().replace(/[^\w가-힣-]+/g, "_").slice(0, 30) || "qrcode";
+        return `qr_${base}.png`;
+      }, [debouncedText]);
+
+      const handleDownload = useCallback(() => {
+        if (!canvasRef.current || !hasContent) return;
+        const dataUrl = canvasRef.current.toDataURL("image/png");
+        const link = document.createElement("a");
+        link.href = dataUrl;
+        link.download = safeFileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }, [hasContent, safeFileName]);
+
+      const handleCopy = useCallback(async () => {
+        if (!canvasRef.current || !hasContent) return;
+        try {
+          if (!navigator.clipboard || !window.ClipboardItem) {
+            throw new Error("unsupported");
+          }
+          canvasRef.current.toBlob(async (blob) => {
+            if (!blob) return;
+            try {
+              await navigator.clipboard.write([new window.ClipboardItem({ "image/png": blob })]);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1800);
+            } catch (e) {
+              alert("이미지 복사가 지원되지 않는 브라우저입니다. 다운로드를 이용해주세요.");
+            }
+          }, "image/png");
+        } catch (e) {
+          alert("이미지 복사가 지원되지 않는 브라우저입니다. 다운로드를 이용해주세요.");
+        }
+      }, [hasContent]);
+
+      const sizePresets = [200, 320, 480, 640];
+
+      return (
+        <div className="min-h-screen">
+          <Header />
+
+          <main className="px-4 py-8 sm:py-10">
+            <div className="max-w-5xl mx-auto">
+
+              {/* Intro */}
+              <div className="text-center mb-8 animate-fade-in-up">
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-gray-900">
+                  무료 QR 코드 만들기
+                </h1>
+                <p className="mt-2 text-gray-500 text-sm sm:text-base">
+                  입력하면 실시간으로 QR 코드가 만들어져요. 색상과 크기도 자유롭게 바꿔보세요.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+
+                {/* Controls */}
+                <Card className="lg:col-span-3 p-6 sm:p-8 animate-fade-in-up">
+                  {/* Preset bar */}
+                  <div className="mb-6">
+                    <Label>빠른 형식 선택</Label>
+                    <PresetBar active={activePreset} onSelect={handlePreset} />
+                  </div>
+
+                  {/* Text input */}
+                  <div className="mb-6">
+                    <Label>내용 입력</Label>
+                    <textarea
+                      value={text}
+                      onChange={(e) => setText(e.target.value)}
+                      rows={3}
+                      placeholder={hint}
+                      className="w-full resize-none bg-white border border-[#DADADA] rounded-lg px-4 py-3 text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#03C75A]/20 focus:border-[#03C75A] transition"
+                      spellCheck={false}
+                    />
+                    <p className="mt-1.5 text-xs text-gray-400">{hint}</p>
+                  </div>
+
+                  {/* Size */}
+                  <div className="mb-6">
+                    <div className="flex items-center justify-between mb-2">
+                      <Label className="mb-0">크기</Label>
+                      <Badge className="bg-[#03C75A]/10 text-[#03A14A]">{size} × {size} px</Badge>
+                    </div>
+                    <input
+                      type="range"
+                      min={120}
+                      max={800}
+                      step={20}
+                      value={size}
+                      onChange={(e) => setSize(Number(e.target.value))}
+                      className="w-full bg-[#03C75A]/20"
+                      aria-label="QR 크기"
+                    />
+                    <div className="flex gap-2 mt-3">
+                      {sizePresets.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setSize(s)}
+                          className={`flex-1 py-1.5 rounded-md text-xs font-bold transition ${
+                            size === s ? "bg-[#03C75A] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          }`}
+                        >
+                          {s}px
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Colors */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                    <ColorField label="QR 색상 (어두운 부분)" value={fgColor} onChange={setFgColor} />
+                    <ColorField label="배경 색상 (밝은 부분)" value={bgColor} onChange={setBgColor} />
+                  </div>
+
+                  {/* Error correction */}
+                  <div>
+                    <Label>오류 복원 수준</Label>
+                    <select
+                      value={ecLevel}
+                      onChange={(e) => setEcLevel(e.target.value)}
+                      className="w-full bg-white border border-[#DADADA] rounded-lg px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#03C75A]/20 focus:border-[#03C75A] transition appearance-none cursor-pointer"
+                    >
+                      <option value="L">L — 낮음 (약 7% 복원)</option>
+                      <option value="M">M — 보통 (약 15% 복원) · 추천</option>
+                      <option value="Q">Q — 높음 (약 25% 복원)</option>
+                      <option value="H">H — 최고 (약 30% 복원)</option>
+                    </select>
+                    <p className="mt-1.5 text-xs text-gray-400">복원 수준이 높을수록 일부 손상돼도 인식되지만 QR이 더 복잡해져요.</p>
+                  </div>
+                </Card>
+
+                {/* Preview */}
+                <div className="lg:col-span-2">
+                  <Card className="p-6 sm:p-8 sticky top-20 animate-fade-in-up flex flex-col items-center">
+                    <h2 className="text-sm font-bold text-gray-500 self-start mb-4">미리보기</h2>
+
+                    <div className="w-full flex items-center justify-center rounded-lg bg-[#F7F8FA] border border-dashed border-[#DADADA] p-4 min-h-[260px]">
+                      {hasContent ? (
+                        <div className="rounded-lg overflow-hidden shadow-sm" style={{ background: bgColor }}>
+                          <canvas
+                            ref={canvasRef}
+                            className="block max-w-full h-auto"
+                            style={{ width: "100%", maxWidth: 260 }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="text-center text-gray-400 py-10 px-4">
+                          <svg className="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h6v6H3V3zm0 12h6v6H3v-6zM15 3h6v6h-6V3zm0 12h3v3m0 0v3h3v-3m-3 0h-3" />
+                          </svg>
+                          <p className="text-sm font-medium">내용을 입력하면<br />QR 코드가 여기에 나타나요</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {genError && hasContent && (
+                      <p className="mt-3 text-xs text-red-500 text-center">{genError}</p>
+                    )}
+
+                    <div className="w-full mt-5 space-y-2.5">
+                      <Button
+                        variant="primary"
+                        size="lg"
+                        onClick={handleDownload}
+                        disabled={!hasContent || !!genError}
+                        className="w-full"
+                      >
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                        </svg>
+                        PNG 다운로드
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="lg"
+                        onClick={handleCopy}
+                        disabled={!hasContent || !!genError}
+                        className="w-full"
+                      >
+                        {copied ? (
+                          <>
+                            <svg className="w-5 h-5 text-[#03C75A]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                            복사됨!
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            이미지 복사
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </Card>
+                </div>
+              </div>
+
+              <footer className="text-center mt-10 text-xs text-gray-400">
+                모든 처리는 브라우저 안에서만 이루어지며, 입력한 내용은 서버로 전송되지 않습니다.
+              </footer>
+            </div>
+          </main>
+        </div>
+      );
+    }
+
+    // ========================================
+    // Rendering
+    // ========================================
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

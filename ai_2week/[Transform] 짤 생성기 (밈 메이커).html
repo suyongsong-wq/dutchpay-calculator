@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>짤 생성기 (밈 메이커)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // 디시인사이드 클래식 색감용 Tailwind 확장
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            dcblue: { DEFAULT: "#3b4890", dark: "#2b3870", light: "#e8ecf7" },
+            dcbar: "#ebeef5",
+            dcline: "#d2d2d2",
+            dclink: "#1257a8",
+          },
+          screens: { xs: "420px" },
+        },
+      },
+    };
+  </script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    /* Impact 폰트가 없는 기기를 위한 웹폰트 대체 (밈 클래식 룩) */
+    @import url('https://fonts.googleapis.com/css2?family=Anton&family=Noto+Sans+KR:wght@400;700;900&family=Black+Han+Sans&family=Do+Hyeon&display=swap');
+
+    html, body, #root { height: 100%; }
+    /* 디시인사이드 기본 폰트: 돋움/굴림 (없으면 시스템 산세리프) */
+    body {
+      margin: 0;
+      font-family: 'Dotum', '돋움', 'Gulim', '굴림', 'Apple SD Gothic Neo', sans-serif;
+      font-size: 12px;
+      color: #333;
+    }
+
+    /* 커스텀 스크롤바 */
+    .scroll-thin::-webkit-scrollbar { width: 10px; }
+    .scroll-thin::-webkit-scrollbar-thumb { background: #c0c0c0; border: 1px solid #a8a8a8; }
+    .scroll-thin::-webkit-scrollbar-track { background: #f0f0f0; }
+
+    /* 디시 갤러리 제목바 */
+    .dc-titlebar {
+      background: linear-gradient(#fbfcfe, #e8ecf7);
+      border: 1px solid #c5cbe0;
+      border-bottom-color: #b3bad6;
+      color: #2b3870;
+    }
+    /* 디시 클래식 버튼 */
+    .dc-btn {
+      background: linear-gradient(#ffffff, #ececec);
+      border: 1px solid #a8a8a8;
+      color: #333;
+    }
+    .dc-btn:hover { background: linear-gradient(#ffffff, #e0e0e0); }
+    .dc-btn:active { background: #dcdcdc; }
+    /* 갤러리 행 hover 배경 */
+    .dc-row:hover { background: #f5f8ff; }
+
+    /* 체커보드(투명 배경 표시용) */
+    .checker {
+      background-image:
+        linear-gradient(45deg, #e2e8f0 25%, transparent 25%),
+        linear-gradient(-45deg, #e2e8f0 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #e2e8f0 75%),
+        linear-gradient(-45deg, transparent 75%, #e2e8f0 75%);
+      background-size: 20px 20px;
+      background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+    }
+
+    canvas { touch-action: none; }
+  </style>
+</head>
+<body class="bg-[#e8e8e8]">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ========================================
+    // React Hooks Destructuring
+    // ========================================
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+    // ========================================
+    // 상수 / 설정
+    // ========================================
+    const CANVAS_W = 800; // 내부 렌더 해상도 (정사각 기준 동적 변경)
+
+    const FONT_OPTIONS = [
+      { label: "Impact (밈 클래식)", value: '"Anton", Impact, "Noto Sans KR", sans-serif' },
+      { label: "고딕 (Noto Sans KR)", value: '900 1px "Noto Sans KR", sans-serif' }, // weight는 따로 처리
+      { label: "Black Han Sans (굵은 한글)", value: '"Black Han Sans", "Noto Sans KR", sans-serif' },
+      { label: "Do Hyeon (둥근 한글)", value: '"Do Hyeon", "Noto Sans KR", sans-serif' },
+    ];
+    // 위에서 weight 섞임 방지를 위해 단순화
+    const FONTS = [
+      { label: "Impact (밈 클래식)", family: '"Anton", Impact, "Noto Sans KR", sans-serif' },
+      { label: "고딕 (Noto Sans KR)", family: '"Noto Sans KR", sans-serif' },
+      { label: "Black Han Sans (굵은 한글)", family: '"Black Han Sans", "Noto Sans KR", sans-serif' },
+      { label: "Do Hyeon (둥근 한글)", family: '"Do Hyeon", "Noto Sans KR", sans-serif' },
+    ];
+
+    const SAMPLE_BACKGROUNDS = [
+      { id: "grad-purple", label: "보라 그라데이션", type: "gradient", colors: ["#7c3aed", "#ec4899"] },
+      { id: "grad-blue", label: "블루 그라데이션", type: "gradient", colors: ["#2563eb", "#06b6d4"] },
+      { id: "grad-sunset", label: "선셋", type: "gradient", colors: ["#f97316", "#ef4444"] },
+      { id: "grad-dark", label: "다크", type: "gradient", colors: ["#0f172a", "#334155"] },
+      { id: "solid-white", label: "화이트", type: "solid", color: "#ffffff" },
+      { id: "solid-black", label: "블랙", type: "solid", color: "#000000" },
+    ];
+
+    // 이모지(스티커) 카테고리 — 캔버스에 그대로 렌더 가능한 유니코드 이모지
+    const EMOJI_FONT = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+    const EMOJI_CATEGORIES = [
+      { id: "face", label: "😀 표정", emojis: ["😀","😂","🤣","😍","😎","🥹","😭","😱","🤯","🥶","😡","🤔","😏","🙄","😴","🤤","🤪","😇","🥳","😈","💀","👻","🤡","👽"] },
+      { id: "gesture", label: "👍 손동작", emojis: ["👍","👎","👏","🙏","🤝","💪","✌️","🤟","🤙","👌","👊","🫰","🫶","🖐️","👀","🫵","🙌","🤲"] },
+      { id: "heart", label: "❤️ 하트/심볼", emojis: ["❤️","🧡","💛","💚","💙","💜","🖤","💖","💕","💔","✨","💥","💢","💯","🔥","⭐","🌟","❗","❓","💬","💭","♨️"] },
+      { id: "animal", label: "🐶 동물", emojis: ["🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐸","🐵","🐔","🐧","🐢","🦄","🐝","🐳","🦖"] },
+      { id: "object", label: "🎉 사물", emojis: ["🎉","🎊","👑","💎","🎁","🏆","💰","💸","📌","📢","🔔","💡","🚀","⚡","🌈","☀️","🌙","💩","🍺","🍕","☕","🎯"] },
+    ];
+
+    let UID = 1;
+    const nextId = () => UID++;
+
+    const makeTextBlock = (overrides = {}) => ({
+      id: nextId(),
+      type: "text",
+      text: "텍스트를 입력하세요",
+      // 위치는 캔버스 내부 좌표(0~width, 0~height) 기준. 텍스트 박스 중앙 기준점.
+      x: CANVAS_W / 2,
+      y: 80,
+      fontSize: 56,
+      fontFamily: FONTS[0].family,
+      color: "#ffffff",
+      strokeColor: "#000000",
+      strokeWidth: 6,
+      align: "center", // left | center | right
+      bold: true,
+      ...overrides,
+    });
+
+    const makeEmojiBlock = (emoji, overrides = {}) => ({
+      id: nextId(),
+      type: "emoji",
+      text: emoji,
+      x: CANVAS_W / 2,
+      y: CANVAS_W / 2,
+      fontSize: 96,
+      // 호환성을 위해 텍스트 블록과 동일한 필드 유지 (렌더 시 무시되는 것도 있음)
+      fontFamily: EMOJI_FONT,
+      color: "#000000",
+      strokeColor: "#000000",
+      strokeWidth: 0,
+      align: "center",
+      bold: false,
+      ...overrides,
+    });
+
+    // ========================================
+    // 🎨 Design System Components
+    // ========================================
+    function Button({ variant = "primary", size = "md", className = "", children, ...props }) {
+      const base = "inline-flex items-center justify-center gap-1 font-bold transition active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none";
+      // 디시 클래식 룩: 회색 그라데이션 버튼 + 강조 버튼만 파란/주황
+      const variants = {
+        primary: "dc-btn",
+        secondary: "dc-btn",
+        ghost: "bg-transparent text-dclink hover:underline border border-transparent",
+        danger: "bg-gradient-to-b from-[#f87171] to-[#dc2626] text-white border border-[#b91c1c]",
+        success: "bg-gradient-to-b from-[#5566c2] to-[#2b3870] text-white border border-[#222d5c]",
+      };
+      const sizes = { sm: "text-[11px] px-2 py-1", md: "text-xs px-3 py-1.5", lg: "text-[13px] px-4 py-2" };
+      return (
+        <button className={`${base} ${variants[variant]} ${sizes[size]} ${className}`} {...props}>
+          {children}
+        </button>
+      );
+    }
+
+    function Card({ className = "", children, ...props }) {
+      return (
+        <div className={`bg-white border border-dcline ${className}`} {...props}>
+          {children}
+        </div>
+      );
+    }
+
+    function Field({ label, children, hint }) {
+      return (
+        <label className="block">
+          {label && <span className="block text-[11px] font-bold text-[#555] mb-1">{label}</span>}
+          {children}
+          {hint && <span className="block text-[11px] text-[#999] mt-1">{hint}</span>}
+        </label>
+      );
+    }
+
+    function TextInput({ className = "", ...props }) {
+      return (
+        <input
+          className={`w-full px-2 py-1.5 text-xs border border-[#b5b5b5] bg-white focus:outline-none focus:border-dcblue ${className}`}
+          {...props}
+        />
+      );
+    }
+
+    function Select({ className = "", children, ...props }) {
+      return (
+        <select
+          className={`w-full px-2 py-1.5 text-xs border border-[#b5b5b5] bg-white focus:outline-none focus:border-dcblue ${className}`}
+          {...props}
+        >
+          {children}
+        </select>
+      );
+    }
+
+    // 디시 갤러리 제목바 (각 카드 상단 헤더)
+    function SectionTitle({ children }) {
+      return (
+        <div className="dc-titlebar px-3 py-1.5 text-xs font-bold flex items-center gap-1.5">
+          <span className="text-dcblue">▪</span>
+          {children}
+        </div>
+      );
+    }
+
+    function Slider({ value, min, max, step = 1, onChange }) {
+      return (
+        <input
+          type="range" value={value} min={min} max={max} step={step}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="w-full accent-dcblue cursor-pointer"
+        />
+      );
+    }
+
+    function ColorInput({ value, onChange }) {
+      return (
+        <div className="flex items-center gap-2">
+          <input
+            type="color" value={value} onChange={(e) => onChange(e.target.value)}
+            className="h-8 w-11 border border-[#b5b5b5] cursor-pointer bg-white p-0.5"
+          />
+          <span className="text-[11px] font-mono text-[#777] uppercase">{value}</span>
+        </div>
+      );
+    }
+
+    function Toast({ toast, onClose }) {
+      useEffect(() => {
+        if (!toast) return;
+        const t = setTimeout(onClose, 4000);
+        return () => clearTimeout(t);
+      }, [toast]);
+      if (!toast) return null;
+      const tones = {
+        error: "bg-[#dc2626]",
+        warn: "bg-[#d97706]",
+        info: "bg-dcblue-dark",
+        success: "bg-dcblue",
+      };
+      return (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 max-w-[90vw]">
+          <div className={`${tones[toast.type] || tones.info} text-white text-xs px-4 py-2.5 border border-black/20 shadow-lg flex items-center gap-3`}>
+            <span>{toast.msg}</span>
+            <button onClick={onClose} className="text-white/80 hover:text-white">✕</button>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 캔버스 렌더링 유틸
+    // ========================================
+    // 이모지(스티커)를 캔버스에 그린다.
+    function drawEmojiBlock(ctx, block) {
+      ctx.font = `${block.fontSize}px ${EMOJI_FONT}`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#000000";
+      ctx.fillText(block.text, block.x, block.y);
+    }
+
+    // 텍스트를 캔버스에 그린다. 줄바꿈(\n) 지원.
+    function drawTextBlock(ctx, block, canvasW) {
+      if (block.type === "emoji") { drawEmojiBlock(ctx, block); return; }
+      const lines = block.text.split("\n");
+      const lineHeight = block.fontSize * 1.15;
+      const weight = block.bold ? "700" : "400";
+      ctx.font = `${weight} ${block.fontSize}px ${block.fontFamily}`;
+      ctx.textAlign = block.align;
+      ctx.textBaseline = "middle";
+      ctx.lineJoin = "round";
+      ctx.miterLimit = 2;
+
+      // align 기준 x 좌표
+      let x = block.x;
+      // 박스 중앙(y)을 기준으로 여러 줄을 위아래로 배치
+      const totalH = lineHeight * lines.length;
+      let startY = block.y - totalH / 2 + lineHeight / 2;
+
+      lines.forEach((line, i) => {
+        const ly = startY + i * lineHeight;
+        if (block.strokeWidth > 0) {
+          ctx.lineWidth = block.strokeWidth;
+          ctx.strokeStyle = block.strokeColor;
+          ctx.strokeText(line, x, ly);
+        }
+        ctx.fillStyle = block.color;
+        ctx.fillText(line, x, ly);
+      });
+    }
+
+    // 텍스트 블록의 바운딩 박스 측정 (히트 테스트용)
+    function measureBlock(ctx, block) {
+      if (block.type === "emoji") {
+        // 이모지는 대략 정사각형으로 취급 (중앙 기준)
+        const s = block.fontSize;
+        const pad = 6;
+        return { left: block.x - s / 2 - pad, top: block.y - s / 2 - pad, width: s + pad * 2, height: s + pad * 2, maxW: s, totalH: s };
+      }
+      const lines = block.text.split("\n");
+      const lineHeight = block.fontSize * 1.15;
+      const weight = block.bold ? "700" : "400";
+      ctx.font = `${weight} ${block.fontSize}px ${block.fontFamily}`;
+      let maxW = 0;
+      lines.forEach((l) => {
+        const w = ctx.measureText(l || " ").width;
+        if (w > maxW) maxW = w;
+      });
+      const totalH = lineHeight * lines.length;
+      // 중앙 기준점 → 박스 좌상단 계산 (align 고려)
+      let left;
+      if (block.align === "center") left = block.x - maxW / 2;
+      else if (block.align === "right") left = block.x - maxW;
+      else left = block.x;
+      const top = block.y - totalH / 2;
+      const pad = block.strokeWidth + 8;
+      return { left: left - pad, top: top - pad, width: maxW + pad * 2, height: totalH + pad * 2, maxW, totalH };
+    }
+
+    // ========================================
+    // 📄 메인 에디터 컴포넌트
+    // ========================================
+    function MemeMaker() {
+      const canvasRef = useRef(null);
+      const wrapRef = useRef(null);
+      const imageRef = useRef(null); // 로드된 Image 객체
+      const measureCtxRef = useRef(null); // 측정용 컨텍스트
+
+      const [imageInfo, setImageInfo] = useState(null); // { w, h }
+      const [tainted, setTainted] = useState(false);
+      const [bg, setBg] = useState(SAMPLE_BACKGROUNDS[0]); // 이미지 없을 때 배경
+      const [blocks, setBlocks] = useState(() => [
+        makeTextBlock({ text: "위쪽 텍스트", y: 70 }),
+        makeTextBlock({ text: "아래쪽 텍스트", y: 730 }),
+      ]);
+      const [selectedId, setSelectedId] = useState(blocks[0].id);
+      const [canvasSize, setCanvasSize] = useState({ w: CANVAS_W, h: CANVAS_W });
+      const [urlInput, setUrlInput] = useState("");
+      const [exportFormat, setExportFormat] = useState("png");
+      const [isDragOver, setIsDragOver] = useState(false);
+      const [toast, setToast] = useState(null);
+      const [emojiCat, setEmojiCat] = useState(EMOJI_CATEGORIES[0].id);
+
+      const dragState = useRef(null); // { id, offsetX, offsetY }
+
+      const selected = useMemo(() => blocks.find((b) => b.id === selectedId) || null, [blocks, selectedId]);
+
+      const showToast = useCallback((msg, type = "info") => setToast({ msg, type }), []);
+
+      // ----- 측정 컨텍스트 준비 -----
+      useEffect(() => {
+        const c = document.createElement("canvas");
+        measureCtxRef.current = c.getContext("2d");
+      }, []);
+
+      // ----- 캔버스 그리기 -----
+      const render = useCallback(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        const { w, h } = canvasSize;
+        canvas.width = w;
+        canvas.height = h;
+        ctx.clearRect(0, 0, w, h);
+
+        // 배경: 이미지 or 샘플 배경
+        if (imageRef.current) {
+          ctx.drawImage(imageRef.current, 0, 0, w, h);
+        } else if (bg) {
+          if (bg.type === "gradient") {
+            const g = ctx.createLinearGradient(0, 0, w, h);
+            g.addColorStop(0, bg.colors[0]);
+            g.addColorStop(1, bg.colors[1]);
+            ctx.fillStyle = g;
+          } else {
+            ctx.fillStyle = bg.color;
+          }
+          ctx.fillRect(0, 0, w, h);
+        } else {
+          ctx.fillStyle = "#e2e8f0";
+          ctx.fillRect(0, 0, w, h);
+        }
+
+        // 텍스트 블록
+        blocks.forEach((b) => drawTextBlock(ctx, b, w));
+
+        // 선택된 블록 표시 (점선 박스) - 다운로드엔 포함 안 되지만 미리보기용으로만.
+        // 다운로드 시에는 별도 재렌더하므로 여기 표시해도 무방하나, 깔끔하게 별도 오버레이로 처리하기 위해 생략.
+      }, [blocks, canvasSize, bg]);
+
+      useEffect(() => { render(); }, [render]);
+
+      // 폰트 로딩 후 재렌더 (웹폰트 비동기 로딩 대응)
+      useEffect(() => {
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(() => render());
+        }
+      }, []);
+
+      // ----- 캔버스 크기 결정 (이미지 비율 유지, 최대 변 기준) -----
+      const applyCanvasSize = useCallback((imgW, imgH) => {
+        const MAX = 900;
+        let w = imgW, h = imgH;
+        const ratio = imgW / imgH;
+        if (imgW >= imgH) { w = Math.min(imgW, MAX); h = Math.round(w / ratio); }
+        else { h = Math.min(imgH, MAX); w = Math.round(h * ratio); }
+        setCanvasSize({ w, h });
+        // 텍스트 위치 재배치 (위/아래)
+        setBlocks((prev) => prev.map((b, i) => {
+          if (Math.abs(b.x - CANVAS_W / 2) < 2) {
+            // 기본 중앙 정렬이던 블록만 x 재배치
+            return { ...b, x: w / 2, y: i === 0 ? Math.round(h * 0.1) : Math.round(h * 0.9) };
+          }
+          return b;
+        }));
+      }, []);
+
+      // ----- 이미지 로드 핸들러 -----
+      const loadImageFromSrc = useCallback((src, { cors = false } = {}) => {
+        const img = new Image();
+        if (cors) img.crossOrigin = "anonymous";
+        img.onload = () => {
+          imageRef.current = img;
+          setImageInfo({ w: img.naturalWidth, h: img.naturalHeight });
+          setTainted(false);
+          applyCanvasSize(img.naturalWidth, img.naturalHeight);
+          // taint 체크: 다음 틱에 toDataURL 시도
+          setTimeout(() => {
+            try {
+              const c = document.createElement("canvas");
+              c.width = 2; c.height = 2;
+              c.getContext("2d").drawImage(img, 0, 0, 2, 2);
+              c.toDataURL();
+              setTainted(false);
+            } catch (e) {
+              setTainted(true);
+              showToast("이 이미지는 CORS 정책으로 보호되어 있어 다운로드가 제한될 수 있어요.", "warn");
+            }
+          }, 0);
+        };
+        img.onerror = () => {
+          showToast("이미지를 불러오지 못했습니다. URL 또는 파일을 확인해주세요.", "error");
+        };
+        img.src = src;
+      }, [applyCanvasSize, showToast]);
+
+      const handleFile = useCallback((file) => {
+        if (!file || !file.type.startsWith("image/")) {
+          showToast("이미지 파일만 업로드할 수 있어요.", "error");
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => loadImageFromSrc(e.target.result, { cors: false });
+        reader.readAsDataURL(file);
+      }, [loadImageFromSrc, showToast]);
+
+      const handleUrlLoad = useCallback(() => {
+        const url = urlInput.trim();
+        if (!url) return;
+        loadImageFromSrc(url, { cors: true });
+      }, [urlInput, loadImageFromSrc]);
+
+      const useSampleBg = useCallback((sample) => {
+        imageRef.current = null;
+        setImageInfo(null);
+        setTainted(false);
+        setBg(sample);
+        setCanvasSize({ w: CANVAS_W, h: CANVAS_W });
+      }, []);
+
+      // ----- 드래그앤드롭 (파일/URL) -----
+      const onDrop = useCallback((e) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        const dt = e.dataTransfer;
+        if (dt.files && dt.files.length) {
+          handleFile(dt.files[0]);
+          return;
+        }
+        const uri = dt.getData("text/uri-list") || dt.getData("text/plain");
+        if (uri) loadImageFromSrc(uri.trim(), { cors: true });
+      }, [handleFile, loadImageFromSrc]);
+
+      // ----- 붙여넣기 (Ctrl+V 이미지) -----
+      useEffect(() => {
+        const onPaste = (e) => {
+          const items = e.clipboardData?.items;
+          if (!items) return;
+          for (const it of items) {
+            if (it.type.startsWith("image/")) {
+              const file = it.getAsFile();
+              handleFile(file);
+              e.preventDefault();
+              return;
+            }
+          }
+        };
+        window.addEventListener("paste", onPaste);
+        return () => window.removeEventListener("paste", onPaste);
+      }, [handleFile]);
+
+      // ----- 캔버스 좌표 변환 (화면 → 내부 해상도) -----
+      const toCanvasCoords = useCallback((clientX, clientY) => {
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        return {
+          x: (clientX - rect.left) * scaleX,
+          y: (clientY - rect.top) * scaleY,
+        };
+      }, []);
+
+      // ----- 텍스트 드래그 (포인터 이벤트) -----
+      const onPointerDown = useCallback((e) => {
+        const canvas = canvasRef.current;
+        const ctx = measureCtxRef.current;
+        if (!canvas || !ctx) return;
+        const { x, y } = toCanvasCoords(e.clientX, e.clientY);
+
+        // 위에서부터(역순) 히트 테스트 - 마지막에 그려진 것이 위
+        let hit = null;
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          const b = blocks[i];
+          const box = measureBlock(ctx, b);
+          if (x >= box.left && x <= box.left + box.width && y >= box.top && y <= box.top + box.height) {
+            hit = b;
+            break;
+          }
+        }
+        if (hit) {
+          setSelectedId(hit.id);
+          dragState.current = { id: hit.id, offsetX: x - hit.x, offsetY: y - hit.y };
+          canvas.setPointerCapture(e.pointerId);
+        }
+      }, [blocks, toCanvasCoords]);
+
+      const onPointerMove = useCallback((e) => {
+        if (!dragState.current) {
+          // 호버 커서 표시
+          return;
+        }
+        const { x, y } = toCanvasCoords(e.clientX, e.clientY);
+        const { id, offsetX, offsetY } = dragState.current;
+        const nx = x - offsetX;
+        const ny = y - offsetY;
+        setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, x: nx, y: ny } : b)));
+      }, [toCanvasCoords]);
+
+      const endDrag = useCallback((e) => {
+        if (dragState.current && canvasRef.current) {
+          try { canvasRef.current.releasePointerCapture(e.pointerId); } catch (_) {}
+        }
+        dragState.current = null;
+      }, []);
+
+      // ----- 블록 업데이트 헬퍼 -----
+      const updateBlock = useCallback((id, patch) => {
+        setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
+      }, []);
+
+      const updateSelected = useCallback((patch) => {
+        if (selected) updateBlock(selected.id, patch);
+      }, [selected, updateBlock]);
+
+      const addBlock = useCallback(() => {
+        const nb = makeTextBlock({
+          text: "새 텍스트",
+          x: canvasSize.w / 2,
+          y: canvasSize.h / 2,
+        });
+        setBlocks((prev) => [...prev, nb]);
+        setSelectedId(nb.id);
+      }, [canvasSize]);
+
+      const addEmoji = useCallback((emoji) => {
+        const nb = makeEmojiBlock(emoji, {
+          x: canvasSize.w / 2,
+          y: canvasSize.h / 2,
+          fontSize: Math.round(Math.min(canvasSize.w, canvasSize.h) * 0.22),
+        });
+        setBlocks((prev) => [...prev, nb]);
+        setSelectedId(nb.id);
+      }, [canvasSize]);
+
+      const removeBlock = useCallback((id) => {
+        setBlocks((prev) => {
+          const next = prev.filter((b) => b.id !== id);
+          if (id === selectedId && next.length) setSelectedId(next[next.length - 1].id);
+          else if (!next.length) setSelectedId(null);
+          return next;
+        });
+      }, [selectedId]);
+
+      const quickPosition = useCallback((pos) => {
+        if (!selected) return;
+        const map = {
+          top: Math.round(canvasSize.h * 0.1),
+          center: Math.round(canvasSize.h * 0.5),
+          bottom: Math.round(canvasSize.h * 0.9),
+        };
+        updateSelected({ y: map[pos], x: canvasSize.w / 2, align: "center" });
+      }, [selected, canvasSize, updateSelected]);
+
+      // ----- 다운로드 -----
+      const download = useCallback(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        try {
+          const mime = exportFormat === "jpg" ? "image/jpeg" : "image/png";
+          const data = canvas.toDataURL(mime, 0.92);
+          const a = document.createElement("a");
+          a.href = data;
+          a.download = `meme-${Date.now()}.${exportFormat === "jpg" ? "jpg" : "png"}`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          showToast("다운로드를 시작했어요!", "success");
+        } catch (err) {
+          setTainted(true);
+          showToast("CORS 보호 이미지로 인해 다운로드가 차단되었어요. 이미지를 다운로드 후 직접 업로드해 보세요.", "error");
+        }
+      }, [exportFormat, showToast]);
+
+      // ========================================
+      // 렌더링
+      // ========================================
+      const hasImage = !!imageInfo;
+
+      return (
+        <div className="min-h-full">
+          {/* ===== 상단 네이비 GNB ===== */}
+          <div className="bg-dcblue-dark text-white sticky top-0 z-30">
+            <div className="max-w-5xl mx-auto px-3 h-8 flex items-center justify-between text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <svg viewBox="0 0 24 16" className="w-4 h-3"><path d="M2 12 Q7 3 12 11 Q17 3 22 12" stroke="white" fill="none" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                <span className="font-extrabold tracking-tight">DCINSIDE</span>
+              </div>
+              <span className="opacity-70 hidden xs:inline">짤 생성기 갤러리 · 밈 메이커</span>
+            </div>
+          </div>
+
+          {/* ===== 갤러리 컨테이너 ===== */}
+          <div className="max-w-5xl mx-auto bg-white sm:border-x border-dcline">
+            {/* 갤러리 헤더 (로고 + 저장) */}
+            <header className="border-b-2 border-dcblue px-3 py-2.5 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="h-9 w-9 shrink-0 bg-dcblue flex items-center justify-center">
+                  <svg viewBox="0 0 24 16" className="w-6 h-4"><path d="M2 12 Q7 3 12 11 Q17 3 22 12" stroke="white" fill="none" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </div>
+                <div className="min-w-0 leading-tight">
+                  <h1 className="text-[15px] font-extrabold text-dcblue-dark truncate">
+                    짤 생성기 <span className="text-[#999] font-normal text-xs">갤러리</span>
+                  </h1>
+                  <p className="text-[11px] text-[#999] truncate">밈 메이커 · Meme Maker</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Select
+                  value={exportFormat}
+                  onChange={(e) => setExportFormat(e.target.value)}
+                  className="w-auto"
+                >
+                  <option value="png">PNG</option>
+                  <option value="jpg">JPG</option>
+                </Select>
+                <Button variant="success" size="md" onClick={download} title="이미지로 저장" className="whitespace-nowrap">
+                  <span>💾</span>
+                  <span className="hidden min-[420px]:inline">이미지 저장</span>
+                </Button>
+              </div>
+            </header>
+
+            {/* 말머리 탭바 (장식) */}
+            <div className="dc-titlebar border-x-0 border-t-0 px-3 py-1.5 flex items-center gap-3 text-[11px] font-bold text-dcblue-dark">
+              <span className="px-1.5 py-0.5 bg-dcblue text-white">전체</span>
+              <span className="text-[#888]">짤제작</span>
+              <span className="text-[#888]">이미지</span>
+              <span className="text-[#888]">텍스트</span>
+              <span className="ml-auto text-[#aaa] font-normal hidden sm:inline">실시간 짤 제작 중...</span>
+            </div>
+
+          <main className="w-full px-3 py-4 grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-3">
+            {/* ===== 컨트롤 패널 ===== */}
+            <div className="order-2 lg:order-1 space-y-3 lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto scroll-thin lg:pr-1">
+
+              {/* 이미지 입력 */}
+              <Card>
+                <SectionTitle>배경 이미지</SectionTitle>
+                <div className="p-3 space-y-3">
+                  <label className="block">
+                    <span className="block text-[11px] font-bold text-[#555] mb-1">파일 업로드</span>
+                    <input
+                      type="file" accept="image/*"
+                      onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])}
+                      className="block w-full text-[11px] text-[#666] file:mr-2 file:py-1 file:px-2 file:border file:border-[#a8a8a8] file:text-[11px] file:font-bold file:bg-gradient-to-b file:from-white file:to-[#ececec] file:text-[#333] hover:file:to-[#e0e0e0] cursor-pointer"
+                    />
+                  </label>
+
+                  <Field label="이미지 URL 붙여넣기" hint="CORS 허용 서버의 이미지만 다운로드 가능해요.">
+                    <div className="flex gap-1.5">
+                      <TextInput
+                        placeholder="https://..."
+                        value={urlInput}
+                        onChange={(e) => setUrlInput(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleUrlLoad()}
+                      />
+                      <Button variant="secondary" onClick={handleUrlLoad} className="shrink-0">불러오기</Button>
+                    </div>
+                  </Field>
+
+                  <div>
+                    <span className="block text-[11px] font-bold text-[#555] mb-1.5">샘플 배경</span>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {SAMPLE_BACKGROUNDS.map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => useSampleBg(s)}
+                          title={s.label}
+                          className={`h-11 border transition ${(!hasImage && bg?.id === s.id) ? "border-dcblue ring-1 ring-dcblue" : "border-[#c8c8c8] hover:border-[#999]"}`}
+                          style={s.type === "gradient"
+                            ? { backgroundImage: `linear-gradient(135deg, ${s.colors[0]}, ${s.colors[1]})` }
+                            : { background: s.color }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {hasImage && (
+                    <div className="flex items-center justify-between text-[11px] text-[#999] pt-0.5">
+                      <span>원본 {imageInfo.w}×{imageInfo.h}px</span>
+                      {tainted && <span className="text-[#d97706] font-bold">⚠ CORS 보호됨</span>}
+                    </div>
+                  )}
+                </div>
+              </Card>
+
+              {/* 이모지 / 스티커 */}
+              <Card>
+                <SectionTitle>이모지 스티커</SectionTitle>
+                <div className="p-3">
+                  {/* 카테고리 탭 */}
+                  <div className="flex flex-wrap gap-1 mb-2.5">
+                    {EMOJI_CATEGORIES.map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => setEmojiCat(c.id)}
+                        className={`px-2 py-0.5 text-[11px] font-bold border transition ${emojiCat === c.id ? "bg-dcblue text-white border-dcblue-dark" : "dc-btn"}`}
+                      >{c.label}</button>
+                    ))}
+                  </div>
+                  {/* 이모지 그리드 */}
+                  <div className="grid grid-cols-6 gap-0.5 border border-[#e0e0e0] p-1 bg-[#fafafa]">
+                    {(EMOJI_CATEGORIES.find((c) => c.id === emojiCat)?.emojis || []).map((em, i) => (
+                      <button
+                        key={i}
+                        onClick={() => addEmoji(em)}
+                        title="클릭해서 추가"
+                        className="aspect-square flex items-center justify-center text-2xl hover:bg-dcblue-light active:bg-[#d4dcf0] transition"
+                      >{em}</button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-[#999] mt-2">클릭하면 캔버스에 추가돼요. 드래그로 옮기고 크기를 조절하세요.</p>
+                </div>
+              </Card>
+
+              {/* 텍스트 블록 목록 */}
+              <Card>
+                <div className="dc-titlebar px-3 py-1 flex items-center justify-between">
+                  <span className="text-xs font-bold flex items-center gap-1.5"><span className="text-dcblue">▪</span>텍스트 레이어</span>
+                  <Button size="sm" variant="secondary" onClick={addBlock}>+ 글쓰기</Button>
+                </div>
+                <div className="p-1.5">
+                  {blocks.length === 0 && (
+                    <p className="text-[11px] text-[#999] py-3 text-center">텍스트가 없어요. "글쓰기"를 눌러보세요.</p>
+                  )}
+                  {blocks.map((b, i) => (
+                    <div
+                      key={b.id}
+                      onClick={() => setSelectedId(b.id)}
+                      className={`dc-row flex items-center gap-2 px-2 py-1.5 cursor-pointer border-b border-[#efefef] ${b.id === selectedId ? "bg-dcblue-light" : ""}`}
+                    >
+                      <span className="text-[10px] text-[#aaa] w-5 text-right tabular-nums">{blocks.length - i}</span>
+                      <span className="text-xs">{b.type === "emoji" ? b.text : "🅣"}</span>
+                      <span className={`flex-1 text-xs truncate ${b.id === selectedId ? "text-dcblue-dark font-bold" : "text-[#444]"}`}>{b.type === "emoji" ? "이모지 스티커" : (b.text.split("\n")[0] || "(빈 텍스트)")}</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); removeBlock(b.id); }}
+                        className="text-[#bbb] hover:text-[#dc2626] text-xs leading-none px-1"
+                        title="삭제"
+                      >✕</button>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              {/* 선택된 블록 편집 */}
+              {selected && (
+                <Card>
+                  <SectionTitle>{selected.type === "emoji" ? "이모지 스티커 편집" : "텍스트 편집"}</SectionTitle>
+                  <div className="p-3 space-y-3">
+
+                  {selected.type === "emoji" ? (
+                    <>
+                      <Field label="이모지">
+                        <div className="flex items-center gap-3">
+                          <div className="h-12 w-12 flex items-center justify-center text-3xl bg-[#fafafa] border border-[#ddd]">{selected.text}</div>
+                          <p className="text-[11px] text-[#999] flex-1">위 스티커 목록에서 다른 이모지를 누르면 새로 추가돼요.</p>
+                        </div>
+                      </Field>
+
+                      <Field label={`크기 (${selected.fontSize}px)`}>
+                        <Slider value={selected.fontSize} min={24} max={500} onChange={(v) => updateSelected({ fontSize: v })} />
+                      </Field>
+                    </>
+                  ) : (
+                    <>
+                      <Field label="텍스트 내용" hint="줄바꿈(Enter)도 그대로 반영돼요.">
+                        <textarea
+                          value={selected.text}
+                          onChange={(e) => updateSelected({ text: e.target.value })}
+                          rows={2}
+                          className="w-full px-2 py-1.5 text-xs border border-[#b5b5b5] resize-y focus:outline-none focus:border-dcblue"
+                        />
+                      </Field>
+
+                      <Field label="폰트">
+                        <Select
+                          value={selected.fontFamily}
+                          onChange={(e) => updateSelected({ fontFamily: e.target.value })}
+                        >
+                          {FONTS.map((f) => (
+                            <option key={f.label} value={f.family}>{f.label}</option>
+                          ))}
+                        </Select>
+                      </Field>
+
+                      <Field label={`글자 크기 (${selected.fontSize}px)`}>
+                        <Slider value={selected.fontSize} min={12} max={200} onChange={(v) => updateSelected({ fontSize: v })} />
+                      </Field>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="글자 색">
+                          <ColorInput value={selected.color} onChange={(v) => updateSelected({ color: v })} />
+                        </Field>
+                        <Field label="외곽선 색">
+                          <ColorInput value={selected.strokeColor} onChange={(v) => updateSelected({ strokeColor: v })} />
+                        </Field>
+                      </div>
+
+                      <Field label={`외곽선 두께 (${selected.strokeWidth}px)`}>
+                        <Slider value={selected.strokeWidth} min={0} max={30} onChange={(v) => updateSelected({ strokeWidth: v })} />
+                      </Field>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="정렬">
+                          <div className="flex border border-[#b5b5b5] overflow-hidden">
+                            {[
+                              { v: "left", icon: "⬅" },
+                              { v: "center", icon: "↔" },
+                              { v: "right", icon: "➡" },
+                            ].map((a) => (
+                              <button
+                                key={a.v}
+                                onClick={() => updateSelected({ align: a.v })}
+                                className={`flex-1 py-1.5 text-xs transition border-r border-[#d5d5d5] last:border-r-0 ${selected.align === a.v ? "bg-dcblue text-white" : "bg-white text-[#555] hover:bg-[#f0f0f0]"}`}
+                              >{a.icon}</button>
+                            ))}
+                          </div>
+                        </Field>
+                        <Field label="굵게">
+                          <button
+                            onClick={() => updateSelected({ bold: !selected.bold })}
+                            className={`w-full py-1.5 border text-xs font-bold transition ${selected.bold ? "bg-dcblue text-white border-dcblue-dark" : "dc-btn"}`}
+                          >Bold {selected.bold ? "ON" : "OFF"}</button>
+                        </Field>
+                      </div>
+                    </>
+                  )}
+
+                  <Field label="빠른 위치" hint="또는 미리보기에서 직접 드래그하세요.">
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <Button size="sm" variant="secondary" onClick={() => quickPosition("top")}>⬆ 위</Button>
+                      <Button size="sm" variant="secondary" onClick={() => quickPosition("center")}>● 중앙</Button>
+                      <Button size="sm" variant="secondary" onClick={() => quickPosition("bottom")}>⬇ 아래</Button>
+                    </div>
+                  </Field>
+                  </div>
+                </Card>
+              )}
+            </div>
+
+            {/* ===== 미리보기 캔버스 ===== */}
+            <div className="order-1 lg:order-2">
+              <Card className="lg:sticky lg:top-[80px]">
+                <div className="dc-titlebar px-3 py-1 flex items-center justify-between">
+                  <span className="text-xs font-bold flex items-center gap-1.5"><span className="text-dcblue">▪</span>미리보기</span>
+                  <span className="text-[11px] text-[#888] font-normal">{canvasSize.w}×{canvasSize.h}px · 드래그로 이동</span>
+                </div>
+                <div className="p-3">
+                  <div
+                    ref={wrapRef}
+                    onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                    onDragLeave={() => setIsDragOver(false)}
+                    onDrop={onDrop}
+                    className={`relative overflow-hidden checker flex items-center justify-center transition border ${isDragOver ? "border-dcblue ring-2 ring-dcblue" : "border-[#c8c8c8]"}`}
+                  >
+                    <canvas
+                      ref={canvasRef}
+                      onPointerDown={onPointerDown}
+                      onPointerMove={onPointerMove}
+                      onPointerUp={endDrag}
+                      onPointerCancel={endDrag}
+                      className="max-w-full h-auto block cursor-move select-none"
+                      style={{ maxHeight: "70vh" }}
+                    />
+                    {isDragOver && (
+                      <div className="absolute inset-0 bg-dcblue/20 flex items-center justify-center pointer-events-none">
+                        <span className="bg-white px-4 py-2 border border-dcblue font-bold text-dcblue-dark shadow">여기에 이미지를 놓으세요</span>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-[#999] mt-2 text-center">
+                    💡 이미지를 끌어다 놓거나 <kbd className="px-1 py-0.5 bg-[#f0f0f0] border border-[#ccc]">Ctrl/⌘+V</kbd>로 붙여넣을 수 있어요.
+                  </p>
+                </div>
+              </Card>
+            </div>
+          </main>
+          </div>
+
+          <Toast toast={toast} onClose={() => setToast(null)} />
+        </div>
+      );
+    }
+
+    // ========================================
+    // 🚀 App
+    // ========================================
+    function App() {
+      return <MemeMaker />;
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
