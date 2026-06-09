@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NASA 오늘의 우주 사진 (APOD)</title>
+<style>
+  :root {
+    --bg: #05060d;
+    --panel: rgba(18, 22, 40, 0.72);
+    --border: rgba(120, 150, 255, 0.18);
+    --text: #e8ecff;
+    --muted: #93a0c9;
+    --accent: #6d8bff;
+    --accent2: #b06dff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+      "Pretendard", "Malgun Gothic", sans-serif;
+    color: var(--text);
+    min-height: 100vh;
+    background: radial-gradient(ellipse at 20% -10%, #16204a 0%, transparent 55%),
+                radial-gradient(ellipse at 90% 0%, #2a1342 0%, transparent 50%),
+                var(--bg);
+    overflow-x: hidden;
+  }
+
+  /* 별 배경 */
+  #stars { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 48px 20px 80px;
+  }
+
+  header { text-align: center; margin-bottom: 32px; }
+  header .badge {
+    display: inline-block;
+    font-size: 12px;
+    letter-spacing: 3px;
+    color: var(--accent);
+    border: 1px solid var(--border);
+    padding: 6px 14px;
+    border-radius: 999px;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+  }
+  header h1 {
+    font-size: 32px;
+    font-weight: 800;
+    background: linear-gradient(120deg, #fff, #9db0ff 60%, #c79bff);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  header p { color: var(--muted); margin-top: 10px; font-size: 14px; }
+
+  /* 컨트롤 바 */
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+    justify-content: center;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 18px;
+    margin-bottom: 28px;
+    backdrop-filter: blur(12px);
+  }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 11px; color: var(--muted); letter-spacing: 0.5px; }
+  .field input {
+    background: rgba(0,0,0,0.35);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .field input:focus { border-color: var(--accent); }
+  .field input::-webkit-calendar-picker-indicator { filter: invert(0.8); cursor: pointer; }
+
+  .btn {
+    border: none;
+    border-radius: 10px;
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    color: #fff;
+    background: linear-gradient(120deg, var(--accent), var(--accent2));
+    transition: transform 0.12s, box-shadow 0.2s;
+    box-shadow: 0 6px 18px rgba(109, 139, 255, 0.35);
+  }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(109, 139, 255, 0.5); }
+  .btn:active { transform: translateY(0); }
+  .btn.ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    box-shadow: none;
+    color: var(--muted);
+  }
+  .btn.ghost:hover { color: var(--text); border-color: var(--accent); }
+
+  /* 카드 */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    overflow: hidden;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+  }
+  .media { position: relative; background: #000; }
+  .media img, .media iframe {
+    display: block;
+    width: 100%;
+    border: none;
+  }
+  .media img { cursor: zoom-in; max-height: 70vh; object-fit: contain; }
+  .media iframe { aspect-ratio: 16 / 9; }
+
+  .copyright {
+    position: absolute;
+    bottom: 8px; right: 10px;
+    font-size: 11px;
+    color: #cdd6ff;
+    background: rgba(0,0,0,0.55);
+    padding: 4px 8px;
+    border-radius: 8px;
+  }
+
+  .body { padding: 24px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+  .tag {
+    font-size: 12px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 12px;
+  }
+  .body h2 { font-size: 24px; font-weight: 800; line-height: 1.3; margin-bottom: 14px; }
+  .body .explanation { color: #c6cef0; line-height: 1.8; font-size: 15px; white-space: pre-line; }
+
+  .actions { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
+
+  /* 상태 메시지 */
+  .state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+  }
+  .spinner {
+    width: 40px; height: 40px;
+    margin: 0 auto 18px;
+    border: 3px solid rgba(255,255,255,0.15);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .state.error { color: #ff9bb0; }
+  .state.error .icon { font-size: 40px; margin-bottom: 12px; }
+
+  /* 라이트박스 */
+  #lightbox {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(0,0,0,0.92);
+    display: none;
+    align-items: center; justify-content: center;
+    padding: 24px;
+    cursor: zoom-out;
+  }
+  #lightbox.open { display: flex; }
+  #lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+
+  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 32px; }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  @media (max-width: 560px) {
+    header h1 { font-size: 24px; }
+    .controls { padding: 14px; }
+    .field input { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<canvas id="stars"></canvas>
+
+<div class="wrap">
+  <header>
+    <span class="badge">NASA · Astronomy Picture of the Day</span>
+    <h1>오늘의 우주 사진</h1>
+    <p>NASA가 매일 공개하는 우주 사진과 천문학자의 설명을 만나보세요.</p>
+  </header>
+
+  <div class="controls">
+    <div class="field">
+      <label for="apiKey">API Key</label>
+      <input id="apiKey" type="text" value="bJaCUdbzh6DCJSbCEQmpiK9mQaZk9M0pfAhHRd6g" placeholder="DEMO_KEY" size="16">
+    </div>
+    <div class="field">
+      <label for="date">날짜 선택</label>
+      <input id="date" type="date">
+    </div>
+    <button class="btn" id="loadBtn">불러오기</button>
+    <button class="btn ghost" id="randomBtn">🎲 랜덤</button>
+    <button class="btn ghost" id="todayBtn">오늘</button>
+  </div>
+
+  <div id="content"></div>
+
+  <footer>
+    데이터 제공: <a href="https://api.nasa.gov/" target="_blank" rel="noopener">NASA Open APIs</a>
+    · 본인 API Key는 <a href="https://api.nasa.gov/" target="_blank" rel="noopener">api.nasa.gov</a> 에서 무료 발급
+  </footer>
+</div>
+
+<div id="lightbox"><img alt="확대 이미지"></div>
+
+<script>
+  // ── 별 배경 그리기 ──
+  const canvas = document.getElementById('stars');
+  const ctx = canvas.getContext('2d');
+  let stars = [];
+  function initStars() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    const count = Math.floor((canvas.width * canvas.height) / 6000);
+    stars = Array.from({ length: count }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      r: Math.random() * 1.3 + 0.2,
+      a: Math.random(),
+      s: Math.random() * 0.02 + 0.004
+    }));
+  }
+  function drawStars() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (const st of stars) {
+      st.a += st.s;
+      const alpha = 0.4 + Math.abs(Math.sin(st.a)) * 0.6;
+      ctx.beginPath();
+      ctx.arc(st.x, st.y, st.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      ctx.fill();
+    }
+    requestAnimationFrame(drawStars);
+  }
+  initStars();
+  drawStars();
+  window.addEventListener('resize', initStars);
+
+  // ── APOD 로직 ──
+  const $ = (id) => document.getElementById(id);
+  const content = $('content');
+  const dateInput = $('date');
+  const apiKeyInput = $('apiKey');
+
+  // 오늘 날짜(로컬 기준) YYYY-MM-DD
+  function todayStr() {
+    const d = new Date();
+    const off = d.getTimezoneOffset();
+    return new Date(d.getTime() - off * 60000).toISOString().slice(0, 10);
+  }
+  const TODAY = todayStr();
+  // APOD는 1995-06-16부터 시작
+  const FIRST = '1995-06-16';
+  dateInput.max = TODAY;
+  dateInput.min = FIRST;
+  dateInput.value = TODAY;
+
+  function showLoading(msg = '우주에서 사진을 가져오는 중...') {
+    content.innerHTML = `
+      <div class="card"><div class="state">
+        <div class="spinner"></div>
+        ${msg}
+      </div></div>`;
+  }
+
+  function showError(msg) {
+    content.innerHTML = `
+      <div class="card"><div class="state error">
+        <div class="icon">🛰️</div>
+        <p>사진을 불러오지 못했어요.</p>
+        <p style="margin-top:8px; font-size:13px;">${msg}</p>
+      </div></div>`;
+  }
+
+  function escapeHtml(s = '') {
+    return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  }
+
+  function render(data) {
+    const isImage = data.media_type === 'image';
+    const imgSrc = data.hdurl || data.url;
+
+    let mediaHtml;
+    if (isImage) {
+      mediaHtml = `<img id="apodImg" src="${escapeHtml(data.url)}" data-hd="${escapeHtml(imgSrc)}" alt="${escapeHtml(data.title)}">`;
+    } else if (data.media_type === 'video') {
+      mediaHtml = `<iframe src="${escapeHtml(data.url)}" allowfullscreen title="${escapeHtml(data.title)}"></iframe>`;
+    } else {
+      mediaHtml = `<div class="state">이 콘텐츠는 미리보기를 지원하지 않습니다. <a href="${escapeHtml(data.url)}" target="_blank" style="color:var(--accent)">원본 보기</a></div>`;
+    }
+
+    const copyright = data.copyright
+      ? `<div class="copyright">© ${escapeHtml(data.copyright.trim())}</div>` : '';
+
+    const hdBtn = (isImage && data.hdurl)
+      ? `<a class="btn ghost" href="${escapeHtml(data.hdurl)}" target="_blank" rel="noopener">고화질 원본</a>` : '';
+
+    content.innerHTML = `
+      <div class="card">
+        <div class="media">${mediaHtml}${copyright}</div>
+        <div class="body">
+          <div class="meta">
+            <span class="tag">📅 ${escapeHtml(data.date)}</span>
+            <span class="tag">${isImage ? '🖼️ 사진' : (data.media_type === 'video' ? '🎬 영상' : '📄 기타')}</span>
+          </div>
+          <h2>${escapeHtml(data.title)}</h2>
+          <p class="explanation">${escapeHtml(data.explanation)}</p>
+          <div class="actions">
+            <a class="btn" href="${escapeHtml(data.url)}" target="_blank" rel="noopener">새 탭에서 열기</a>
+            ${hdBtn}
+          </div>
+        </div>
+      </div>`;
+
+    // 이미지 클릭 → 라이트박스
+    const img = $('apodImg');
+    if (img) {
+      img.addEventListener('click', () => {
+        const lb = $('lightbox');
+        lb.querySelector('img').src = img.dataset.hd;
+        lb.classList.add('open');
+      });
+    }
+  }
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function load(date) {
+    const key = apiKeyInput.value.trim() || 'DEMO_KEY';
+    showLoading();
+    let url = `https://api.nasa.gov/planetary/apod?api_key=${encodeURIComponent(key)}`;
+    if (date) url += `&date=${date}`;
+
+    const MAX_TRIES = 4; // 503 등 일시적 서버 오류 대비 자동 재시도
+    try {
+      let res;
+      for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
+        try {
+          res = await fetch(url);
+        } catch (e) {
+          // 네트워크 자체 실패(오프라인/방화벽 등)
+          if (attempt === MAX_TRIES) throw new Error('네트워크에 연결할 수 없어요. 인터넷 연결이나 방화벽을 확인해 주세요.');
+          showLoading(`네트워크 응답이 없어 다시 시도 중... (${attempt}/${MAX_TRIES})`);
+          await sleep(800 * attempt);
+          continue;
+        }
+        // 5xx(503 등)는 NASA 서버의 일시적 문제 → 잠시 후 재시도
+        if (res.status >= 500 && attempt < MAX_TRIES) {
+          showLoading(`NASA 서버가 잠시 응답하지 않아 다시 시도 중... (${attempt}/${MAX_TRIES})`);
+          await sleep(800 * attempt);
+          continue;
+        }
+        break;
+      }
+
+      if (!res.ok) {
+        if (res.status === 429) throw new Error('요청 한도를 초과했어요. (DEMO_KEY는 시간당 30회) 본인 API Key를 입력해 보세요.');
+        if (res.status === 403) throw new Error('API Key가 올바르지 않습니다.');
+        if (res.status >= 500) throw new Error(`NASA 서버가 일시적으로 응답하지 않아요. (HTTP ${res.status}) 잠시 후 다시 시도해 주세요.`);
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.msg || `요청 실패 (HTTP ${res.status})`);
+      }
+      const data = await res.json();
+      render(data);
+      if (data.date) dateInput.value = data.date;
+    } catch (err) {
+      showError(err.message || String(err));
+    }
+  }
+
+  // 랜덤 날짜 (FIRST ~ TODAY)
+  function randomDate() {
+    const start = new Date(FIRST).getTime();
+    const end = new Date(TODAY).getTime();
+    const t = start + Math.random() * (end - start);
+    return new Date(t).toISOString().slice(0, 10);
+  }
+
+  // ── 이벤트 ──
+  $('loadBtn').addEventListener('click', () => load(dateInput.value));
+  $('todayBtn').addEventListener('click', () => { dateInput.value = TODAY; load(); });
+  $('randomBtn').addEventListener('click', () => { const d = randomDate(); dateInput.value = d; load(d); });
+  dateInput.addEventListener('change', () => load(dateInput.value));
+  apiKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') load(dateInput.value); });
+
+  $('lightbox').addEventListener('click', () => $('lightbox').classList.remove('open'));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('lightbox').classList.remove('open'); });
+
+  // 첫 로딩 → 오늘 사진
+  load();
+</script>
+</body>
+</html>

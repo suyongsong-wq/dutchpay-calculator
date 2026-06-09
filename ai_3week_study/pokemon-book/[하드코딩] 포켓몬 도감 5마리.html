@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>포켓몬 도감 (하드코딩)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body {
+      font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+        "Malgun Gothic", "맑은 고딕", sans-serif;
+    }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in-up { animation: fadeInUp 0.45s ease-out both; }
+    @keyframes floaty {
+      0%, 100% { transform: translateY(0); }
+      50%      { transform: translateY(-8px); }
+    }
+    .animate-floaty { animation: floaty 3.5s ease-in-out infinite; }
+    @keyframes growBar { from { width: 0; } }
+    .animate-grow-bar { animation: growBar 0.7s cubic-bezier(.22,1,.36,1) both; }
+  </style>
+</head>
+<body class="bg-slate-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState } = React;
+
+    // ─────────────────────────────────────────────
+    // 속성(타입) 한글명 + 색상
+    // ─────────────────────────────────────────────
+    const TYPE_INFO = {
+      normal:   { ko: "노말", color: "#9FA19F" },
+      fire:     { ko: "불꽃", color: "#E62829" },
+      water:    { ko: "물",   color: "#2980EF" },
+      electric: { ko: "전기", color: "#FAC000" },
+      grass:    { ko: "풀",   color: "#3FA129" },
+      poison:   { ko: "독",   color: "#9141CB" },
+    };
+
+    const STAT_KO = {
+      hp: "HP", attack: "공격", defense: "방어",
+      "special-attack": "특수공격", "special-defense": "특수방어", speed: "스피드",
+    };
+
+    // ─────────────────────────────────────────────
+    // ★ 하드코딩 데이터 — 포켓몬 5마리
+    //   (API 없이 아래 데이터만 사용합니다)
+    // ─────────────────────────────────────────────
+    const POKEMONS = [
+      {
+        id: 1,
+        name: "bulbasaur",
+        korName: "이상해씨",
+        types: ["grass", "poison"],
+        height: 0.7,   // m
+        weight: 6.9,   // kg
+        desc: "태어날 때부터 등에 씨앗이 있는 씨앗 포켓몬. 햇빛을 받으며 함께 자란다.",
+        image: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/1.png",
+        stats: { hp: 45, attack: 49, defense: 49, "special-attack": 65, "special-defense": 65, speed: 45 },
+      },
+      {
+        id: 4,
+        name: "charmander",
+        korName: "파이리",
+        types: ["fire"],
+        height: 0.6,
+        weight: 8.5,
+        desc: "꼬리 끝에서 불꽃이 타오르는 도마뱀 포켓몬. 건강할수록 불꽃이 활활 타오른다.",
+        image: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/4.png",
+        stats: { hp: 39, attack: 52, defense: 43, "special-attack": 60, "special-defense": 50, speed: 65 },
+      },
+      {
+        id: 7,
+        name: "squirtle",
+        korName: "꼬북이",
+        types: ["water"],
+        height: 0.5,
+        weight: 9.0,
+        desc: "등껍질에 몸을 숨기는 거북 포켓몬. 입에서 물을 세차게 뿜어 공격한다.",
+        image: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/7.png",
+        stats: { hp: 44, attack: 48, defense: 65, "special-attack": 50, "special-defense": 64, speed: 43 },
+      },
+      {
+        id: 25,
+        name: "pikachu",
+        korName: "피카츄",
+        types: ["electric"],
+        height: 0.4,
+        weight: 6.0,
+        desc: "볼에 전기를 저장하는 쥐 포켓몬. 화가 나면 저장한 전기를 한꺼번에 방출한다.",
+        image: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png",
+        stats: { hp: 35, attack: 55, defense: 40, "special-attack": 50, "special-defense": 50, speed: 90 },
+      },
+      {
+        id: 132,
+        name: "ditto",
+        korName: "메타몽",
+        types: ["normal"],
+        height: 0.3,
+        weight: 4.0,
+        desc: "어떤 포켓몬으로든 변신할 수 있는 변신 포켓몬. 세포 구성을 자유자재로 바꾼다.",
+        image: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/132.png",
+        stats: { hp: 48, attack: 48, defense: 48, "special-attack": 48, "special-defense": 48, speed: 48 },
+      },
+    ];
+
+    function statColor(v) {
+      if (v >= 100) return "#22c55e";
+      if (v >= 70)  return "#84cc16";
+      if (v >= 50)  return "#eab308";
+      if (v >= 30)  return "#f97316";
+      return "#ef4444";
+    }
+
+    function TypeBadge({ type }) {
+      const info = TYPE_INFO[type] || { ko: type, color: "#777" };
+      return (
+        <span
+          className="rounded-full px-3 py-1 text-xs font-bold text-white shadow-sm"
+          style={{ backgroundColor: info.color }}
+        >
+          {info.ko}
+        </span>
+      );
+    }
+
+    function StatBar({ name, value }) {
+      const pct = Math.min(100, (value / 150) * 100);
+      return (
+        <div className="flex items-center gap-3">
+          <span className="w-16 shrink-0 text-xs font-semibold text-slate-500">
+            {STAT_KO[name] || name}
+          </span>
+          <span className="w-8 shrink-0 text-right text-xs font-bold text-slate-700 tabular-nums">
+            {value}
+          </span>
+          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-200">
+            <div
+              className="h-full rounded-full animate-grow-bar"
+              style={{ width: pct + "%", backgroundColor: statColor(value) }}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    function PokemonCard({ p }) {
+      const mainColor = (TYPE_INFO[p.types[0]] || {}).color || "#64748b";
+      const total = Object.values(p.stats).reduce((s, v) => s + v, 0);
+
+      return (
+        <div className="animate-fade-in-up overflow-hidden rounded-3xl bg-white shadow-lg transition hover:-translate-y-1 hover:shadow-2xl">
+          {/* 헤더 */}
+          <div
+            className="relative px-5 pt-5 pb-20"
+            style={{ background: `linear-gradient(135deg, ${mainColor}, ${mainColor}cc)` }}
+          >
+            <div className="flex items-start justify-between text-white">
+              <h2 className="text-2xl font-extrabold drop-shadow">{p.korName}</h2>
+              <span className="text-xl font-black opacity-70">
+                #{String(p.id).padStart(3, "0")}
+              </span>
+            </div>
+            <div className="mt-2 flex gap-1.5">
+              {p.types.map((t) => <TypeBadge key={t} type={t} />)}
+            </div>
+          </div>
+
+          {/* 이미지 */}
+          <div className="-mt-20 flex justify-center">
+            <div className="rounded-full bg-white/70 p-2 shadow-lg backdrop-blur">
+              <img
+                src={p.image}
+                alt={p.korName}
+                className="h-36 w-36 animate-floaty object-contain"
+              />
+            </div>
+          </div>
+
+          {/* 본문 */}
+          <div className="px-5 pb-5 pt-2">
+            <p className="mb-4 text-center text-sm leading-relaxed text-slate-500">
+              {p.desc}
+            </p>
+
+            <div className="mb-4 grid grid-cols-2 gap-2">
+              <div className="rounded-2xl bg-slate-50 p-2.5 text-center">
+                <div className="text-xs font-semibold text-slate-400">키</div>
+                <div className="text-base font-bold text-slate-700">{p.height} m</div>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-2.5 text-center">
+                <div className="text-xs font-semibold text-slate-400">몸무게</div>
+                <div className="text-base font-bold text-slate-700">{p.weight} kg</div>
+              </div>
+            </div>
+
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-700">능력치</h3>
+              <span className="text-xs font-semibold text-slate-400">
+                총합 <span className="text-slate-700">{total}</span>
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {Object.entries(p.stats).map(([name, value]) => (
+                <StatBar key={name} name={name} value={value} />
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [query, setQuery] = useState("");
+
+      const q = query.trim().toLowerCase();
+      const filtered = POKEMONS.filter(
+        (p) => p.korName.includes(query.trim()) || p.name.includes(q) || String(p.id) === q
+      );
+
+      return (
+        <div className="min-h-screen px-4 py-10">
+          <div className="mx-auto max-w-5xl">
+            {/* 헤더 */}
+            <div className="mb-6 text-center">
+              <h1 className="text-4xl font-extrabold tracking-tight text-slate-800">
+                포켓몬 <span className="text-red-500">도감</span>
+              </h1>
+              <p className="mt-2 text-sm text-slate-500">
+                하드코딩된 5마리 — 파이리 · 꼬북이 · 피카츄 · 이상해씨 · 메타몽
+              </p>
+            </div>
+
+            {/* 검색창 */}
+            <div className="mx-auto mb-8 max-w-md">
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="이름으로 검색 (예: 피카츄, pikachu, 25)"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-slate-700 shadow-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+              />
+            </div>
+
+            {/* 카드 그리드 */}
+            {filtered.length > 0 ? (
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {filtered.map((p) => <PokemonCard key={p.id} p={p} />)}
+              </div>
+            ) : (
+              <div className="py-16 text-center text-slate-300">
+                <div className="text-6xl">🔍</div>
+                <p className="mt-3 text-sm font-medium text-slate-400">
+                  ‘{query}’ 에 해당하는 포켓몬이 없어요
+                </p>
+              </div>
+            )}
+
+            <p className="mt-10 text-center text-xs text-slate-400">
+              하드코딩 버전 · 데이터를 코드 안에 직접 입력했어요
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
