@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>오늘의 꿈해몽</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', -apple-system, sans-serif;
+      color: #1a1a1a;
+      background: #e9ebef;            /* 폰 바깥 회색 */
+      display: flex; justify-content: center;
+      min-height: 100vh;
+    }
+
+    /* 폰 화면 */
+    .phone {
+      width: 100%; max-width: 420px; min-height: 100vh;
+      background: #f4f5f7; position: relative;
+      display: flex; flex-direction: column;
+    }
+
+    /* 상단 앱바 */
+    .appbar {
+      height: 52px; flex: 0 0 52px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 14px; background: #f4f5f7;
+      position: sticky; top: 0; z-index: 10;
+    }
+    .appbar .ic { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+      font-size: 20px; color: #222; cursor: pointer; background: none; border: none; }
+    .appbar .ttl { font-size: 16px; font-weight: 700; }
+
+    .content { flex: 1; padding: 6px 16px 40px; }
+
+    /* 공통 카드 */
+    .card {
+      background: #fff; border-radius: 18px; padding: 20px;
+      box-shadow: 0 2px 10px rgba(20,30,60,.05); margin-bottom: 14px;
+    }
+    .card.no-pad { padding: 0; overflow: hidden; }
+
+    /* 물결 헤더 */
+    .wave-head { position: relative; padding: 18px 20px 0; }
+    .wave-head .eyebrow { font-size: 12.5px; color: #8b94a3; font-weight: 600; }
+    .wave-head .htitle { font-size: 18px; font-weight: 800; margin-top: 3px; }
+    .wave-svg { display: block; width: 100%; margin-top: 10px; }
+
+    /* 페르소나 탭 (검은 알약) */
+    .seg-label { font-size: 13px; font-weight: 700; color: #5b6473; margin: 4px 2px 10px; }
+    .seg { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+    .seg::-webkit-scrollbar { display: none; }
+    .pill {
+      flex: 0 0 auto; cursor: pointer; border: 1.5px solid #e2e5ea; background: #fff;
+      color: #4a5260; font-size: 13.5px; font-weight: 700; padding: 9px 14px; border-radius: 999px;
+      white-space: nowrap; transition: all .15s;
+    }
+    .pill:hover { border-color: #cfd4dc; }
+    .pill.active { background: #1a1a1a; border-color: #1a1a1a; color: #fff; }
+
+    /* textarea */
+    textarea {
+      width: 100%; min-height: 130px; resize: vertical; display: block;
+      border: none; outline: none; font-size: 15.5px; line-height: 1.6; color: #1a1a1a;
+      font-family: inherit; background: transparent;
+    }
+    textarea::placeholder { color: #aab0bb; }
+    .counter { text-align: right; font-size: 12px; color: #aab0bb; margin-top: 6px; }
+
+    /* 노란 CTA */
+    .cta {
+      width: 100%; border: none; cursor: pointer; border-radius: 14px;
+      background: #ffe14d; color: #1a1a1a; font-size: 16px; font-weight: 800;
+      padding: 16px; box-shadow: 0 6px 16px rgba(255,210,40,.35);
+      transition: filter .15s, transform .1s;
+    }
+    .cta:hover:not(:disabled) { filter: brightness(1.03); }
+    .cta:active:not(:disabled) { transform: translateY(1px); }
+    .cta:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
+
+    .ghost {
+      width: 100%; border: 1.5px solid #e2e5ea; background: #fff; cursor: pointer;
+      border-radius: 14px; padding: 14px; font-size: 14.5px; font-weight: 700; color: #4a5260;
+      transition: background .15s;
+    }
+    .ghost:hover { background: #f7f8fa; }
+
+    .hint { min-height: 18px; text-align: center; font-size: 13px; color: #ff5d5d; margin-top: 10px; }
+
+    /* 모드 토글 (세그먼트) */
+    .mode-toggle { display: flex; background: #e7e9ee; border-radius: 13px; padding: 4px; margin-bottom: 8px; }
+    .mode-btn { flex: 1; border: none; background: transparent; cursor: pointer; font-size: 13.5px;
+      font-weight: 700; color: #6b7280; padding: 10px 6px; border-radius: 10px; transition: all .15s; }
+    .mode-btn.on { background: #fff; color: #1a1a1a; box-shadow: 0 1px 5px rgba(0,0,0,.08); }
+    .mode-hint { text-align: center; font-size: 12px; color: #9aa1ad; margin: 0 0 16px; min-height: 16px; }
+
+    .engine-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700;
+      color: #6b7280; background: #f1f3f6; padding: 4px 10px; border-radius: 999px; }
+
+    .spinner { display: inline-block; width: 15px; height: 15px; border: 2.5px solid rgba(0,0,0,.25);
+      border-top-color: #1a1a1a; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 7px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ===== 결과 ===== */
+    .score-wrap { text-align: center; padding: 4px 0 6px; }
+    .score-num { position: relative; display: inline-block; font-size: 68px; font-weight: 900; line-height: 1; color: #1a1a1a; }
+    .score-dot { position: absolute; top: -6px; right: -22px; width: 30px; height: 20px;
+      background: #ffe14d; border-radius: 50%; transform: rotate(-12deg); z-index: 0; }
+    .score-num .n { position: relative; z-index: 1; }
+    .score-unit { font-size: 22px; font-weight: 800; color: #c2c7d0; }
+    .score-sub { font-size: 15px; color: #3d4452; margin-top: 14px; line-height: 1.55; font-weight: 600; padding: 0 6px; }
+
+    .row-title { font-size: 13px; font-weight: 800; color: #8b94a3; margin-bottom: 10px; }
+
+    .verdict { display: inline-flex; align-items: center; gap: 7px; font-size: 16px; font-weight: 800;
+      padding: 9px 16px; border-radius: 12px; }
+    .verdict.good { background: #e7f8ee; color: #18a558; }
+    .verdict.bad  { background: #ffecec; color: #e54848; }
+    .verdict.mid  { background: #fff6df; color: #d99a16; }
+
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip { background: #f1f3f6; color: #4a5260; font-size: 13px; font-weight: 700;
+      padding: 7px 13px; border-radius: 999px; }
+
+    .advice { font-size: 15px; line-height: 1.65; color: #2c3340; }
+
+    /* 미니 게이지 */
+    .gauge { height: 10px; border-radius: 999px; background: #eef0f3; overflow: hidden; margin-top: 4px; }
+    .gauge-fill { height: 100%; border-radius: 999px; width: 0; transition: width 1s cubic-bezier(.2,.8,.2,1); }
+
+    .ad { background: linear-gradient(90deg,#7c5cff,#b06bff); color: #fff; border-radius: 14px;
+      padding: 14px 16px; font-size: 13.5px; font-weight: 700; text-align: center; margin-top: 2px; }
+
+    /* ===== 탭 네비 ===== */
+    .main-tabs { display: flex; background: #e7e9ee; border-radius: 13px; padding: 4px; margin-bottom: 16px; }
+    .main-tab { flex: 1; border: none; background: transparent; cursor: pointer; font-size: 14px;
+      font-weight: 700; color: #6b7280; padding: 11px 6px; border-radius: 10px; transition: all .15s; }
+    .main-tab.on { background: #fff; color: #1a1a1a; box-shadow: 0 1px 5px rgba(0,0,0,.08); }
+
+    /* ===== 꿈 사전 ===== */
+    .dict-search {
+      width: 100%; border: none; outline: none; font-size: 15px; padding: 14px 16px;
+      border-radius: 14px; background: #fff; box-shadow: 0 2px 10px rgba(20,30,60,.05);
+      font-family: inherit; margin-bottom: 12px;
+    }
+    .dict-search::placeholder { color: #aab0bb; }
+    .dict-count { font-size: 12.5px; color: #8b94a3; font-weight: 600; margin: 0 2px 12px; }
+    .dict-item { padding: 16px 18px; border-bottom: 1px solid #f0f2f5; }
+    .dict-item:last-child { border-bottom: none; }
+    .dict-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+    .dict-kw { font-size: 16px; font-weight: 800; color: #1a1a1a; }
+    .dict-cat { font-size: 11.5px; font-weight: 700; color: #8b94a3; background: #f1f3f6; padding: 3px 8px; border-radius: 999px; }
+    .dict-mean { font-size: 14px; line-height: 1.55; color: #4a5260; margin-bottom: 8px; }
+    .dict-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+    .dict-tag { font-size: 11.5px; color: #7b8494; background: #f7f8fa; padding: 3px 8px; border-radius: 6px; }
+    .dict-empty { text-align: center; padding: 40px 16px; color: #9aa1ad; font-size: 14.5px; line-height: 1.6; }
+    .dict-matched { margin-top: 4px; }
+    .dict-matched-item { font-size: 13.5px; color: #4a5260; line-height: 1.55; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #eef0f3; }
+    .dict-matched-item strong { color: #1a1a1a; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const PERSONAS = [
+      { key: 'mystic', emoji: '🔮', name: '점술가',  full: '신비로운 점술가' },
+      { key: 'mz',     emoji: '😎', name: 'MZ',     full: 'MZ 해몽러' },
+      { key: 'monk',   emoji: '🧘', name: '스님',   full: '해탈한 스님' },
+      { key: 'bestie', emoji: '🫶', name: '친구',   full: '다정한 친구' },
+    ];
+    const MAX_LEN = 1000;
+
+    // 점신풍 하늘색 물결 헤더
+    function Wave() {
+      return (
+        <svg className="wave-svg" viewBox="0 0 380 70" preserveAspectRatio="none" height="56">
+          <defs>
+            <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#dbeeff" />
+              <stop offset="100%" stopColor="#ffffff" />
+            </linearGradient>
+          </defs>
+          <path d="M0,30 C90,5 160,55 250,32 C310,16 350,30 380,26 L380,70 L0,70 Z" fill="url(#wg)" />
+        </svg>
+      );
+    }
+
+    function verdictBadge(v) {
+      if (v === '길몽') return { cls: 'good', icon: '🍀' };
+      if (v === '흉몽') return { cls: 'bad', icon: '⚠️' };
+      return { cls: 'mid', icon: '☯️' };
+    }
+
+    function DictionaryView() {
+      const [query, setQuery] = useState('');
+      const [category, setCategory] = useState('전체');
+      const [items, setItems] = useState([]);
+      const [categories, setCategories] = useState(['전체']);
+      const [loading, setLoading] = useState(true);
+
+      useEffect(() => {
+        const timer = setTimeout(async () => {
+          setLoading(true);
+          try {
+            const params = new URLSearchParams({ q: query, category });
+            const res = await fetch('/api/dictionary?' + params);
+            const data = await res.json();
+            setItems(data.items || []);
+            if (data.categories) setCategories(data.categories);
+          } catch (e) {
+            setItems([]);
+          } finally {
+            setLoading(false);
+          }
+        }, query ? 250 : 0);
+        return () => clearTimeout(timer);
+      }, [query, category]);
+
+      return (
+        <React.Fragment>
+          <div className="card no-pad" style={{ marginBottom: 16 }}>
+            <div className="wave-head">
+              <div className="eyebrow">꿈해몽 사전</div>
+              <div className="htitle">상징 뜻을 찾아보세요 📖</div>
+              <Wave />
+            </div>
+          </div>
+
+          <input
+            className="dict-search"
+            placeholder="🔍 돼지, 뱀, 추락… 키워드 검색"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+
+          <div className="seg" style={{ marginBottom: 12 }}>
+            {categories.map((c) => (
+              <button
+                key={c}
+                className={'pill' + (category === c ? ' active' : '')}
+                onClick={() => setCategory(c)}
+              >{c}</button>
+            ))}
+          </div>
+
+          <div className="dict-count">
+            {loading ? '불러오는 중…' : `총 ${items.length}개 상징`}
+          </div>
+
+          <div className="card no-pad">
+            {loading ? (
+              <div className="dict-empty"><span className="spinner"></span> 사전을 불러오는 중…</div>
+            ) : items.length === 0 ? (
+              <div className="dict-empty">검색 결과가 없어요.<br />다른 키워드로 찾아보세요.</div>
+            ) : items.map((item, i) => {
+              const vb = verdictBadge(item.verdict);
+              return (
+                <div className="dict-item" key={i}>
+                  <div className="dict-top">
+                    <span className="dict-kw">{item.kw}</span>
+                    <span className="dict-cat">{item.category}</span>
+                  </div>
+                  <div className="dict-mean">{item.meaning}</div>
+                  <span className={'verdict ' + vb.cls} style={{ fontSize: '13px', padding: '5px 12px' }}>
+                    <span>{vb.icon}</span>{item.verdict}
+                  </span>
+                  {item.tags && item.tags.length > 0 && (
+                    <div className="dict-tags" style={{ marginTop: 10 }}>
+                      {item.tags.map((t, j) => <span className="dict-tag" key={j}>#{t}</span>)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </React.Fragment>
+      );
+    }
+
+    function App() {
+      const [tab, setTab] = useState('interpret'); // 'interpret' | 'dictionary'
+      const [persona, setPersona] = useState('mystic');
+      const [dream, setDream] = useState('');
+      const [loading, setLoading] = useState(false);
+      const [hint, setHint] = useState('');
+      const [result, setResult] = useState(null);
+      const [mode, setMode] = useState('local');   // 'api' = OpenAI, 'local' = 내부 서버
+      const [resultMode, setResultMode] = useState('local');
+
+      const chosen = PERSONAS.find((p) => p.key === persona) || PERSONAS[0];
+
+      async function handleInterpret() {
+        if (!dream.trim()) { setHint('먼저 어젯밤 꿈을 적어주세요 🌙'); return; }
+        setHint(''); setLoading(true);
+        const url = mode === 'api' ? '/api/interpret' : '/api/interpret-local';
+        try {
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dream: dream.trim(), persona }),
+          });
+          const data = await res.json();
+          if (!res.ok) { setHint(data.error || '해몽에 실패했어요. 다시 시도해주세요.'); setLoading(false); return; }
+          setResultMode(mode);
+          setResult(data);
+          window.scrollTo(0, 0);
+        } catch (e) {
+          setHint('서버에 연결하지 못했어요. 서버가 켜져 있는지 확인해주세요.');
+        } finally { setLoading(false); }
+      }
+
+      function reset() { setResult(null); setHint(''); }
+
+      function verdictStyle(v) {
+        return verdictBadge(v);
+      }
+      function luckColor(s) {
+        if (s >= 70) return 'linear-gradient(90deg,#18a558,#5fd693)';
+        if (s >= 40) return 'linear-gradient(90deg,#e0a93a,#ffd970)';
+        return 'linear-gradient(90deg,#e54848,#ff8a8a)';
+      }
+
+      return (
+        <div className="phone">
+          {/* 앱바 */}
+          <div className="appbar">
+            <button className="ic" onClick={result ? reset : null}>{result ? '‹' : ' '}</button>
+            <div className="ttl">{tab === 'dictionary' ? '꿈해몽 사전' : '오늘의 꿈해몽'}</div>
+            <button className="ic">{result ? '↗' : ' '}</button>
+          </div>
+
+          <div className="content">
+            {tab === 'dictionary' ? (
+              <DictionaryView />
+            ) : !result ? (
+              <React.Fragment>
+                {/* 헤더 카드 */}
+                <div className="card no-pad" style={{ marginBottom: 16 }}>
+                  <div className="wave-head">
+                    <div className="eyebrow">AI 꿈해몽</div>
+                    <div className="htitle">어젯밤 꿈을 풀어드려요 🌙</div>
+                    <Wave />
+                  </div>
+                </div>
+
+                {/* 모드 토글 */}
+                <div className="mode-toggle">
+                  <button className={'mode-btn' + (mode === 'api' ? ' on' : '')} onClick={() => setMode('api')}>🤖 AI 버전</button>
+                  <button className={'mode-btn' + (mode === 'local' ? ' on' : '')} onClick={() => setMode('local')}>⚙️ 내부 서버</button>
+                </div>
+                <div className="mode-hint">
+                  {mode === 'api' ? '실제 OpenAI로 해몽해요 (서버에 API 키 필요)' : 'API 키 없이 서버 자체 꿈사전으로 해몽해요'}
+                </div>
+
+                {/* 페르소나 탭 */}
+                <div className="seg-label">해몽가 선택</div>
+                <div className="seg" style={{ marginBottom: 16 }}>
+                  {PERSONAS.map((p) => (
+                    <button
+                      key={p.key}
+                      className={'pill' + (persona === p.key ? ' active' : '')}
+                      onClick={() => setPersona(p.key)}
+                    >{p.emoji} {p.name}</button>
+                  ))}
+                </div>
+
+                {/* 꿈 입력 */}
+                <div className="seg-label">어젯밤 꿈 내용</div>
+                <div className="card">
+                  <textarea
+                    value={dream}
+                    maxLength={MAX_LEN}
+                    placeholder="어젯밤 꿈을 적어보세요…&#10;예) 높은 곳에서 떨어지다가 갑자기 하늘을 날았어요"
+                    onChange={(e) => setDream(e.target.value)}
+                  />
+                  <div className="counter">{dream.length} / {MAX_LEN}</div>
+                </div>
+
+                <button className="cta" onClick={handleInterpret} disabled={loading}>
+                  {loading ? <span><span className="spinner"></span>해몽하는 중…</span> : '✨ 꿈 해몽하기'}
+                </button>
+                <div className="hint">{hint}</div>
+              </React.Fragment>
+            ) : (
+              <React.Fragment>
+                {/* 결과 헤더 카드 (점신 운세 스타일) */}
+                <div className="card no-pad">
+                  <div className="wave-head">
+                    <div className="eyebrow">{chosen.emoji} {chosen.full}의 해몽</div>
+                    <div className="htitle" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      오늘의 행운지수
+                      <span className="engine-badge">{resultMode === 'api' ? '🤖 AI' : '⚙️ 내부 서버'}</span>
+                    </div>
+                    <Wave />
+                  </div>
+                  <div style={{ padding: '4px 20px 22px' }}>
+                    <div className="score-wrap">
+                      <div className="score-num">
+                        <span className="score-dot"></span>
+                        <span className="n">{result.luckScore}</span>
+                        <span className="score-unit"> 점</span>
+                      </div>
+                      <div className="score-sub">{result.summary}</div>
+                    </div>
+                    <div className="gauge" style={{ marginTop: 18 }}>
+                      <div className="gauge-fill" style={{ width: result.luckScore + '%', background: luckColor(result.luckScore) }}></div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 길흉 판정 */}
+                <div className="card">
+                  <div className="row-title">길흉 판정</div>
+                  {(() => { const vs = verdictStyle(result.verdict); return (
+                    <span className={'verdict ' + vs.cls}><span>{vs.icon}</span>{result.verdict}</span>
+                  ); })()}
+                </div>
+
+                {/* 상징 키워드 */}
+                <div className="card">
+                  <div className="row-title">🔑 상징 키워드</div>
+                  <div className="chips">
+                    {result.keywords.map((k, i) => <span className="chip" key={i}>#{k}</span>)}
+                  </div>
+                  {resultMode === 'local' && result.matchedSymbols && result.matchedSymbols.length > 0 && (
+                    <div className="dict-matched">
+                      {result.matchedSymbols.map((m, i) => (
+                        <div className="dict-matched-item" key={i}>
+                          <strong>{m.kw}</strong> ({m.category}) — {m.meaning}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 오늘의 조언 */}
+                <div className="card">
+                  <div className="row-title">💡 오늘의 조언</div>
+                  <div className="advice">{result.advice}</div>
+                </div>
+
+                <button className="ghost" onClick={reset}>🔄 다른 꿈 다시 해몽하기</button>
+                <div className="ad" style={{ marginTop: 14 }}>✨ 꿈은 마음의 거울 — 오늘도 좋은 하루 되세요</div>
+              </React.Fragment>
+            )}
+          </div>
+
+          {/* 하단 탭 (결과 화면에서는 숨김) */}
+          {!result && (
+            <div style={{ padding: '0 16px 24px', flexShrink: 0 }}>
+              <div className="main-tabs">
+                <button className={'main-tab' + (tab === 'interpret' ? ' on' : '')} onClick={() => setTab('interpret')}>🌙 해몽하기</button>
+                <button className={'main-tab' + (tab === 'dictionary' ? ' on' : '')} onClick={() => setTab('dictionary')}>📖 꿈 사전</button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

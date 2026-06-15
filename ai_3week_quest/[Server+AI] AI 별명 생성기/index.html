@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 별명 생성기 - Windows XP</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: Tahoma, 'Segoe UI', 'Malgun Gothic', sans-serif;
+      font-size: 12px;
+      /* XP "Bliss" 느낌의 하늘 → 초록 언덕 그라데이션 */
+      background: linear-gradient(180deg, #5b9bd5 0%, #6aa9e0 38%, #8bbf5a 62%, #6fa840 100%);
+      min-height: 100%;
+      overflow-x: hidden;
+    }
+
+    /* ===== XP 창(Window) ===== */
+    .xp-window {
+      width: 560px;
+      max-width: calc(100% - 24px);
+      margin: 40px auto 80px;
+      background: #ece9d8;
+      border: 1px solid #0054e3;
+      border-radius: 8px 8px 0 0;
+      box-shadow: 3px 3px 12px rgba(0,0,0,.45);
+      padding: 3px;
+    }
+    .xp-titlebar {
+      height: 28px;
+      display: flex;
+      align-items: center;
+      padding: 0 3px 0 6px;
+      border-radius: 6px 6px 0 0;
+      background: linear-gradient(to bottom,
+        #0058ee 0%, #3593ff 8%, #288eff 12%, #0064ff 40%,
+        #0054e3 88%, #0040c0 100%);
+      color: #fff;
+      font-weight: bold;
+      text-shadow: 1px 1px 1px rgba(0,0,0,.5);
+      user-select: none;
+    }
+    .xp-titlebar .ico { margin-right: 6px; font-size: 14px; }
+    .xp-titlebar .title { flex: 1; font-size: 13px; }
+    .xp-btns { display: flex; gap: 2px; }
+    .xp-cap {
+      width: 21px; height: 21px;
+      border: 1px solid #ffffff;
+      border-radius: 3px;
+      color: #fff; font-weight: bold; font-size: 12px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: default;
+      background: linear-gradient(to bottom, #4a9bff, #1564e8);
+    }
+    .xp-cap.close { background: linear-gradient(to bottom, #f08b6b, #d6451f); }
+    .xp-cap.close:hover { background: linear-gradient(to bottom, #ff9e80, #e8501f); }
+
+    .xp-body { padding: 14px 14px 16px; }
+
+    /* ===== 폼 컨트롤 ===== */
+    label.field-label { display: block; margin: 0 0 3px; color: #003366; font-weight: bold; }
+    .req { color: #c00; }
+    input.xp-input {
+      width: 100%;
+      padding: 4px 5px;
+      font: inherit;
+      border: 1px solid #7f9db9;
+      background: #fff;
+      box-shadow: inset 1px 1px 1px rgba(0,0,0,.12);
+    }
+    input.xp-input:focus { outline: 1px dotted #003366; border-color: #003c74; }
+    .row { display: flex; gap: 10px; }
+    .row > div { flex: 1; }
+    .mt { margin-top: 11px; }
+
+    /* ===== 그룹박스 (스타일 선택) ===== */
+    fieldset.xp-group {
+      border: 1px solid #b8b4a0;
+      border-radius: 3px;
+      padding: 10px 10px 12px;
+      margin: 13px 0 0;
+    }
+    fieldset.xp-group > legend { color: #003366; font-weight: bold; padding: 0 4px; }
+    .style-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
+    .style-chip {
+      padding: 4px 9px;
+      border: 1px solid #7f9db9;
+      background: linear-gradient(to bottom, #ffffff, #ece9d8);
+      border-radius: 3px;
+      cursor: default;
+      white-space: nowrap;
+    }
+    .style-chip:hover { border-color: #003c74; }
+    .style-chip.active {
+      background: linear-gradient(to bottom, #fff0a8, #ffd95a);
+      border-color: #d6a600;
+      font-weight: bold;
+    }
+
+    /* ===== XP 버튼 ===== */
+    button.xp-button {
+      font: inherit;
+      padding: 5px 16px;
+      border: 1px solid #003c74;
+      border-radius: 3px;
+      background: linear-gradient(to bottom, #fdfdfd 0%, #f0efe8 45%, #d8d4c4 90%, #e6e3d8 100%);
+      cursor: default;
+      box-shadow: inset 0 0 0 1px #fff;
+    }
+    button.xp-button:hover:not(:disabled) { border-color: #e08a00; box-shadow: inset 0 0 0 1px #fff, 0 0 4px #ffcf66; }
+    button.xp-button:active:not(:disabled) { background: linear-gradient(to bottom, #d8d4c4, #f0efe8); }
+    button.xp-button:disabled { color: #888; }
+    button.go { display: block; width: 100%; padding: 8px; font-weight: bold; margin-top: 14px; }
+
+    /* ===== 상태/결과 ===== */
+    .xp-error {
+      margin-top: 12px; padding: 8px 10px;
+      border: 1px solid #c0a000; background: #fffbe0; color: #663c00;
+    }
+    .results-panel {
+      margin-top: 14px;
+      border: 1px solid #7f9db9;
+      background: #fff;
+      padding: 8px;
+      box-shadow: inset 1px 1px 2px rgba(0,0,0,.1);
+    }
+    .results-title { font-weight: bold; color: #003366; margin: 2px 2px 8px; }
+    .nick-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 8px; border: 1px solid #e3e0d2; margin-bottom: 6px;
+      background: linear-gradient(to bottom, #ffffff, #f6f5ef);
+    }
+    .nick-item:last-child { margin-bottom: 0; }
+    .nick-name { font-weight: bold; color: #00309c; font-size: 13px; }
+    .nick-reason { color: #555; margin-top: 2px; }
+    .copy-ok { color: #137a13; }
+    .skeleton { height: 34px; background: #f0efe8; border: 1px solid #e3e0d2; margin-bottom: 6px; animation: blink 1s infinite alternate; }
+    @keyframes blink { from { opacity: .5; } to { opacity: 1; } }
+    .empty-hint { text-align: center; color: #335; padding: 10px; }
+
+    /* ===== 작업표시줄(Taskbar) ===== */
+    .taskbar {
+      position: fixed; left: 0; right: 0; bottom: 0; height: 32px;
+      display: flex; align-items: stretch;
+      background: linear-gradient(to bottom, #2f8bf4 0%, #1257d8 90%, #0a44b5 100%);
+      border-top: 1px solid #0e57d6;
+      box-shadow: 0 -1px 4px rgba(0,0,0,.4);
+      z-index: 50;
+    }
+    .start-btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 0 22px 0 12px;
+      font-style: italic; font-weight: bold; font-size: 15px; color: #fff;
+      text-shadow: 1px 1px 1px rgba(0,0,0,.4);
+      border-radius: 0 12px 12px 0;
+      background: linear-gradient(to bottom, #5cc24a 0%, #43a52f 50%, #2f8a1f 100%);
+      border-right: 1px solid #1f5d12;
+      cursor: default;
+    }
+    .start-btn .flag { font-size: 14px; }
+    .clock {
+      margin-left: auto; display: flex; align-items: center;
+      padding: 0 14px; color: #fff; font-size: 12px;
+      background: linear-gradient(to bottom, #18a0e8, #1466c8);
+      border-left: 1px solid #5aaef0;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const STYLES = [
+      { label: '귀여운 동물', emoji: '🐰' },
+      { label: '게임 캐릭터', emoji: '🎮' },
+      { label: '중2병', emoji: '⚔️' },
+      { label: '조선시대 양반', emoji: '🎎' },
+      { label: '힙합 래퍼', emoji: '🎤' },
+      { label: '신비로운 판타지', emoji: '🔮' },
+    ];
+
+    function CopyButton({ text }) {
+      const [copied, setCopied] = useState(false);
+      const copy = async () => {
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+          } else {
+            const ta = document.createElement('textarea');
+            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            document.execCommand('copy'); document.body.removeChild(ta);
+          }
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch (e) { alert('복사에 실패했습니다.'); }
+      };
+      return (
+        <button className="xp-button" style={{ width: 78 }} onClick={copy}>
+          {copied ? <span className="copy-ok">복사됨 ✓</span> : '복사'}
+        </button>
+      );
+    }
+
+    function Clock() {
+      const fmt = () => {
+        const d = new Date();
+        let h = d.getHours(); const m = String(d.getMinutes()).padStart(2, '0');
+        const ap = h < 12 ? '오전' : '오후'; h = h % 12 || 12;
+        return `${ap} ${h}:${m}`;
+      };
+      const [t, setT] = useState(fmt());
+      useEffect(() => { const id = setInterval(() => setT(fmt()), 10000); return () => clearInterval(id); }, []);
+      return <div className="clock">{t}</div>;
+    }
+
+    function App() {
+      const [name, setName] = useState('');
+      const [personality, setPersonality] = useState('');
+      const [hobby, setHobby] = useState('');
+      const [style, setStyle] = useState('귀여운 동물');
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState('');
+      const [results, setResults] = useState([]);
+
+      const generate = async () => {
+        setError('');
+        if (!name.trim()) { setError('이름을 입력해주세요!'); return; }
+        if (!style.trim()) { setError('스타일을 선택하거나 입력해주세요!'); return; }
+        setLoading(true); setResults([]);
+        try {
+          const res = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, personality, hobby, style }),
+          });
+          const data = await res.json();
+          if (!res.ok) setError(data.error || '별명 생성에 실패했습니다.');
+          else setResults(data.nicknames || []);
+        } catch (e) {
+          setError('서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.');
+        } finally { setLoading(false); }
+      };
+
+      return (
+        <React.Fragment>
+          <div className="xp-window">
+            <div className="xp-titlebar">
+              <span className="ico">✨</span>
+              <span className="title">AI 별명 생성기</span>
+              <div className="xp-btns">
+                <div className="xp-cap">_</div>
+                <div className="xp-cap">▢</div>
+                <div className="xp-cap close">✕</div>
+              </div>
+            </div>
+
+            <div className="xp-body">
+              <div>
+                <label className="field-label">이름 <span className="req">*</span></label>
+                <input className="xp-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 김수영" />
+              </div>
+              <div className="row mt">
+                <div>
+                  <label className="field-label">성격</label>
+                  <input className="xp-input" value={personality} onChange={(e) => setPersonality(e.target.value)} placeholder="예: 활발한, 엉뚱한" />
+                </div>
+                <div>
+                  <label className="field-label">취미</label>
+                  <input className="xp-input" value={hobby} onChange={(e) => setHobby(e.target.value)} placeholder="예: 게임, 등산" />
+                </div>
+              </div>
+
+              <fieldset className="xp-group">
+                <legend>별명 스타일 / 톤 <span className="req">*</span></legend>
+                <div className="style-grid">
+                  {STYLES.map((s) => (
+                    <div key={s.label}
+                      className={'style-chip' + (style === s.label ? ' active' : '')}
+                      onClick={() => setStyle(s.label)}>
+                      {s.emoji} {s.label}
+                    </div>
+                  ))}
+                </div>
+                <input className="xp-input" value={style} onChange={(e) => setStyle(e.target.value)}
+                  placeholder="직접 입력도 가능해요 (예: 사이버펑크 해커)" />
+              </fieldset>
+
+              <button className="xp-button go" onClick={generate} disabled={loading}>
+                {loading ? '별명 짓는 중...' : '별명 생성하기'}
+              </button>
+
+              {error && <div className="xp-error">⚠️ {error}</div>}
+
+              {loading && (
+                <div className="results-panel">
+                  {[0,1,2].map((i) => <div key={i} className="skeleton" />)}
+                </div>
+              )}
+
+              {!loading && results.length > 0 && (
+                <div className="results-panel">
+                  <div className="results-title">🎁 추천 별명 {results.length}개</div>
+                  {results.map((n, i) => (
+                    <div key={i} className="nick-item">
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="nick-name">{n.name}</div>
+                        {n.reason && <div className="nick-reason">{n.reason}</div>}
+                      </div>
+                      <CopyButton text={n.name} />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!loading && results.length === 0 && !error && (
+                <div className="empty-hint">위 정보를 입력하고 [별명 생성하기]를 눌러보세요 👆</div>
+              )}
+            </div>
+          </div>
+
+          <div className="taskbar">
+            <div className="start-btn"><span className="flag">⊞</span> 시작</div>
+            <Clock />
+          </div>
+        </React.Fragment>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

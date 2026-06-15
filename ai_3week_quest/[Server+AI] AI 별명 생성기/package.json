@@ -1,0 +1,15 @@
+{
+  "name": "ai-nickname-generator",
+  "version": "1.0.0",
+  "description": "AI 별명 생성기 - OpenAI API로 이름/성격/취미 기반 재미있는 별명을 만들어주는 서버",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>포켓컴 — API 포켓몬 도감</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body {
+      font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+        "Malgun Gothic", "맑은 고딕", sans-serif;
+      background:
+        radial-gradient(circle at 20% 10%, #3b4252 0, transparent 55%),
+        radial-gradient(circle at 90% 90%, #2a2f3a 0, transparent 55%),
+        #1b1e26;
+    }
+    /* 도트(디지털) 폰트 느낌 */
+    .lcd-font { font-family: "DM Mono","Courier New",monospace; letter-spacing: 0.04em; }
+
+    /* ── 포켓컴 본체 ── */
+    .dex-shell {
+      background: linear-gradient(150deg, #ef3d3d 0%, #d62828 55%, #b01e1e 100%);
+      box-shadow:
+        inset 0 2px 0 rgba(255,255,255,.35),
+        inset 0 -8px 24px rgba(0,0,0,.30),
+        0 28px 60px rgba(0,0,0,.55),
+        0 6px 14px rgba(0,0,0,.4);
+    }
+    /* 좌/우 패널 사이 경첩 */
+    .hinge {
+      background: repeating-linear-gradient(
+        to bottom, #b01e1e 0 8px, #8f1818 8px 16px);
+      box-shadow: inset 0 0 4px rgba(0,0,0,.5);
+    }
+    /* 큰 파란 렌즈 (좌측 상단 보석) */
+    .big-lens {
+      background:
+        radial-gradient(circle at 35% 30%, #eaf6ff 0 6%, #7fd2ff 22%, #2196f3 55%, #0b5ec9 100%);
+      box-shadow:
+        0 0 0 6px #fff,
+        0 0 0 9px rgba(0,0,0,.25),
+        inset 0 4px 10px rgba(255,255,255,.6),
+        inset 0 -6px 12px rgba(0,0,0,.35);
+    }
+    .big-lens::after {
+      content:"";
+      position:absolute; top:14%; left:20%;
+      width:34%; height:24%;
+      background: rgba(255,255,255,.85);
+      border-radius:50%;
+      filter: blur(2px);
+    }
+    .led { box-shadow: 0 0 6px 1px currentColor, inset 0 -2px 3px rgba(0,0,0,.35), inset 0 2px 3px rgba(255,255,255,.7); }
+    .blink { animation: blink 1.1s steps(1) infinite; }
+    @keyframes blink { 50% { opacity:.35; } }
+
+    /* ── 초록 LCD 스크린 ── */
+    .screen-bezel {
+      background: linear-gradient(160deg,#e7e7e7,#bdbdbd);
+      box-shadow: inset 0 2px 4px rgba(255,255,255,.7), inset 0 -3px 6px rgba(0,0,0,.3);
+    }
+    .screen {
+      background:
+        repeating-linear-gradient(0deg, rgba(0,0,0,.05) 0 2px, transparent 2px 4px),
+        linear-gradient(160deg,#9bbc0f 0%, #8bac0f 50%, #6f8f0a 100%);
+      box-shadow: inset 0 0 22px rgba(0,40,0,.5), inset 0 0 6px rgba(0,0,0,.4);
+      color:#143601;
+    }
+    .screen-glare {
+      background: linear-gradient(120deg, rgba(255,255,255,.35) 0%, rgba(255,255,255,0) 38%);
+    }
+
+    /* 작은 도트행/버튼 디테일 */
+    .speaker-line { background: #9a1a1a; box-shadow: inset 0 1px 1px rgba(0,0,0,.4); }
+    .dpad { background: linear-gradient(160deg,#3a3f47,#23262c); box-shadow: inset 0 1px 0 rgba(255,255,255,.15), 0 3px 6px rgba(0,0,0,.5); }
+    .round-btn { box-shadow: inset 0 2px 2px rgba(255,255,255,.5), inset 0 -3px 4px rgba(0,0,0,.35), 0 3px 5px rgba(0,0,0,.4); }
+    .key-btn { box-shadow: inset 0 1px 0 rgba(255,255,255,.5), inset 0 -2px 3px rgba(0,0,0,.3), 0 2px 4px rgba(0,0,0,.4); }
+    .key-btn:active { transform: translateY(1px); }
+
+    /* 애니메이션 */
+    @keyframes floaty { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-7px)} }
+    .animate-floaty { animation: floaty 3s ease-in-out infinite; }
+    @keyframes spin360 { to { transform: rotate(360deg); } }
+    .animate-spin360 { animation: spin360 .9s linear infinite; }
+    @keyframes growBar { from { width:0; } }
+    .animate-grow-bar { animation: growBar .7s cubic-bezier(.22,1,.36,1) both; }
+    @keyframes popIn { from{opacity:0; transform:scale(.9)} to{opacity:1; transform:scale(1)} }
+    .animate-pop { animation: popIn .35s ease-out both; }
+    @keyframes scanline { from{transform:translateY(-100%)} to{transform:translateY(100%)} }
+    .scan { animation: scanline 2.4s linear infinite; }
+  </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const TYPE_INFO = {
+      normal:{ko:"노말",color:"#9FA19F"}, fire:{ko:"불꽃",color:"#E62829"},
+      water:{ko:"물",color:"#2980EF"}, electric:{ko:"전기",color:"#FAC000"},
+      grass:{ko:"풀",color:"#3FA129"}, ice:{ko:"얼음",color:"#3DCEF3"},
+      fighting:{ko:"격투",color:"#FF8000"}, poison:{ko:"독",color:"#9141CB"},
+      ground:{ko:"땅",color:"#915121"}, flying:{ko:"비행",color:"#81B9EF"},
+      psychic:{ko:"에스퍼",color:"#EF4179"}, bug:{ko:"벌레",color:"#91A119"},
+      rock:{ko:"바위",color:"#AFA981"}, ghost:{ko:"고스트",color:"#704170"},
+      dragon:{ko:"드래곤",color:"#5060E1"}, dark:{ko:"악",color:"#624D4E"},
+      steel:{ko:"강철",color:"#60A1B8"}, fairy:{ko:"페어리",color:"#EF70EF"},
+    };
+    const STAT_KO = { "hp":"HP","attack":"공격","defense":"방어",
+      "special-attack":"특공","special-defense":"특방","speed":"스피드" };
+
+    // 한글 이름 → 도감 번호 (PokeAPI는 한글 검색어를 못 받으므로 여기서 번호로 변환)
+    const KOR_TO_ID = {"이상해씨":1,"이상해풀":2,"이상해꽃":3,"파이리":4,"리자드":5,"리자몽":6,"꼬부기":7,"어니부기":8,"거북왕":9,"캐터피":10,"단데기":11,"버터플":12,"뿔충이":13,"딱충이":14,"독침붕":15,"구구":16,"피죤":17,"피죤투":18,"꼬렛":19,"레트라":20,"깨비참":21,"깨비드릴조":22,"아보":23,"아보크":24,"피카츄":25,"라이츄":26,"모래두지":27,"고지":28,"니드런♀":29,"니드리나":30,"니드퀸":31,"니드런♂":32,"니드리노":33,"니드킹":34,"삐삐":35,"픽시":36,"식스테일":37,"나인테일":38,"푸린":39,"푸크린":40,"주뱃":41,"골뱃":42,"뚜벅쵸":43,"냄새꼬":44,"라플레시아":45,"파라스":46,"파라섹트":47,"콘팡":48,"도나리":49,"디그다":50,"닥트리오":51,"나옹":52,"페르시온":53,"고라파덕":54,"골덕":55,"망키":56,"성원숭":57,"가디":58,"윈디":59,"발챙이":60,"슈륙챙이":61,"강챙이":62,"캐이시":63,"윤겔라":64,"후딘":65,"알통몬":66,"근육몬":67,"괴력몬":68,"모다피":69,"우츠동":70,"우츠보트":71,"왕눈해":72,"독파리":73,"꼬마돌":74,"데구리":75,"딱구리":76,"포니타":77,"날쌩마":78,"야돈":79,"야도란":80,"코일":81,"레어코일":82,"파오리":83,"두두":84,"두트리오":85,"쥬쥬":86,"쥬레곤":87,"질퍽이":88,"질뻐기":89,"셀러":90,"파르셀":91,"고오스":92,"고우스트":93,"팬텀":94,"롱스톤":95,"슬리프":96,"슬리퍼":97,"크랩":98,"킹크랩":99,"찌리리공":100,"붐볼":101,"아라리":102,"나시":103,"탕구리":104,"텅구리":105,"시라소몬":106,"홍수몬":107,"내루미":108,"또가스":109,"또도가스":110,"뿔카노":111,"코뿌리":112,"럭키":113,"덩쿠리":114,"캥카":115,"쏘드라":116,"시드라":117,"콘치":118,"왕콘치":119,"별가사리":120,"아쿠스타":121,"마임맨":122,"스라크":123,"루주라":124,"에레브":125,"마그마":126,"쁘사이저":127,"켄타로스":128,"잉어킹":129,"갸라도스":130,"라프라스":131,"메타몽":132,"이브이":133,"샤미드":134,"쥬피썬더":135,"부스터":136,"폴리곤":137,"암나이트":138,"암스타":139,"투구":140,"투구푸스":141,"프테라":142,"잠만보":143,"프리져":144,"썬더":145,"파이어":146,"미뇽":147,"신뇽":148,"망나뇽":149,"뮤츠":150,"뮤":151,"치코리타":152,"베이리프":153,"메가니움":154,"브케인":155,"마그케인":156,"블레이범":157,"리아코":158,"엘리게이":159,"장크로다일":160,"꼬리선":161,"다꼬리":162,"부우부":163,"야부엉":164,"레디바":165,"레디안":166,"페이검":167,"아리아도스":168,"크로뱃":169,"초라기":170,"랜턴":171,"피츄":172,"삐":173,"푸푸린":174,"토게피":175,"토게틱":176,"네이티":177,"네이티오":178,"메리프":179,"보송송":180,"전룡":181,"아르코":182,"마릴":183,"마릴리":184,"꼬지모":185,"왕구리":186,"통통코":187,"두코":188,"솜솜코":189,"에이팜":190,"해너츠":191,"해루미":192,"왕자리":193,"우파":194,"누오":195,"에브이":196,"블래키":197,"니로우":198,"야도킹":199,"무우마":200,"안농":201,"마자용":202,"키링키":203,"피콘":204,"쏘콘":205,"노고치":206,"글라이거":207,"강철톤":208,"블루":209,"그랑블루":210,"침바루":211,"핫삼":212,"단단지":213,"헤라크로스":214,"포푸니":215,"깜지곰":216,"링곰":217,"마그마그":218,"마그카르고":219,"꾸꾸리":220,"메꾸리":221,"코산호":222,"총어":223,"대포무노":224,"딜리버드":225,"만타인":226,"무장조":227,"델빌":228,"헬가":229,"킹드라":230,"코코리":231,"코리갑":232,"폴리곤2":233,"노라키":234,"루브도":235,"배루키":236,"카포에라":237,"뽀뽀라":238,"에레키드":239,"마그비":240,"밀탱크":241,"해피너스":242,"라이코":243,"앤테이":244,"스이쿤":245,"애버라스":246,"데기라스":247,"마기라스":248,"루기아":249,"칠색조":250,"세레비":251,"나무지기":252,"나무돌이":253,"나무킹":254,"아차모":255,"영치코":256,"번치코":257,"물짱이":258,"늪짱이":259,"대짱이":260,"포챠나":261,"그라에나":262,"지그제구리":263,"직구리":264,"개무소":265,"실쿤":266,"뷰티플라이":267,"카스쿤":268,"독케일":269,"연꽃몬":270,"로토스":271,"로파파":272,"도토링":273,"잎새코":274,"다탱구":275,"테일로":276,"스왈로":277,"갈모매":278,"패리퍼":279,"랄토스":280,"킬리아":281,"가디안":282,"비구술":283,"비나방":284,"버섯꼬":285,"버섯모":286,"게을로":287,"발바로":288,"게을킹":289,"토중몬":290,"아이스크":291,"껍질몬":292,"소곤룡":293,"노공룡":294,"폭음룡":295,"마크탕":296,"하리뭉":297,"루리리":298,"코코파스":299,"에나비":300,"델케티":301,"깜까미":302,"입치트":303,"가보리":304,"갱도라":305,"보스로라":306,"요가랑":307,"요가램":308,"썬더라이":309,"썬더볼트":310,"플러시":311,"마이농":312,"볼비트":313,"네오비트":314,"로젤리아":315,"꼴깍몬":316,"꿀꺽몬":317,"샤프니아":318,"샤크니아":319,"고래왕자":320,"고래왕":321,"둔타":322,"폭타":323,"코터스":324,"피그점프":325,"피그킹":326,"얼루기":327,"톱치":328,"비브라바":329,"플라이곤":330,"선인왕":331,"밤선인":332,"파비코":333,"파비코리":334,"쟝고":335,"세비퍼":336,"루나톤":337,"솔록":338,"미꾸리":339,"메깅":340,"가재군":341,"가재장군":342,"오뚝군":343,"점토도리":344,"릴링":345,"릴리요":346,"아노딥스":347,"아말도":348,"빈티나":349,"밀로틱":350,"캐스퐁":351,"켈리몬":352,"어둠대신":353,"다크펫":354,"해골몽":355,"미라몽":356,"트로피우스":357,"치렁":358,"앱솔":359,"마자":360,"눈꼬마":361,"얼음귀신":362,"대굴레오":363,"씨레오":364,"씨카이저":365,"진주몽":366,"헌테일":367,"분홍장이":368,"시라칸":369,"사랑동이":370,"아공이":371,"쉘곤":372,"보만다":373,"메탕":374,"메탕구":375,"메타그로스":376,"레지락":377,"레지아이스":378,"레지스틸":379,"라티아스":380,"라티오스":381,"가이오가":382,"그란돈":383,"레쿠쟈":384,"지라치":385,"테오키스":386,"모부기":387,"수풀부기":388,"토대부기":389,"불꽃숭이":390,"파이숭이":391,"초염몽":392,"팽도리":393,"팽태자":394,"엠페르트":395,"찌르꼬":396,"찌르버드":397,"찌르호크":398,"비버니":399,"비버통":400,"귀뚤뚜기":401,"귀뚤톡크":402,"꼬링크":403,"럭시오":404,"렌트라":405,"꼬몽울":406,"로즈레이드":407,"두개도스":408,"램펄드":409,"방패톱스":410,"바리톱스":411,"도롱충이":412,"도롱마담":413,"나메일":414,"세꿀버리":415,"비퀸":416,"파치리스":417,"브이젤":418,"플로젤":419,"체리버":420,"체리꼬":421,"깝질무":422,"트리토돈":423,"겟핸보숭":424,"흔들풍손":425,"둥실라이드":426,"이어롤":427,"이어롭":428,"무우마직":429,"돈크로우":430,"나옹마":431,"몬냥이":432,"랑딸랑":433,"스컹뿡":434,"스컹탱크":435,"동미러":436,"동탁군":437,"꼬지지":438,"흉내내":439,"핑복":440,"페라페":441,"화강돌":442,"딥상어동":443,"한바이트":444,"한카리아스":445,"먹고자":446,"리오르":447,"루카리오":448,"히포포타스":449,"하마돈":450,"스콜피":451,"드래피온":452,"삐딱구리":453,"독개굴":454,"무스틈니":455,"형광어":456,"네오라이트":457,"타만타":458,"눈쓰개":459,"눈설왕":460,"포푸니라":461,"자포코일":462,"내룸벨트":463,"거대코뿌리":464,"덩쿠림보":465,"에레키블":466,"마그마번":467,"토게키스":468,"메가자리":469,"리피아":470,"글레이시아":471,"글라이온":472,"맘모꾸리":473,"폴리곤Z":474,"엘레이드":475,"대코파스":476,"야느와르몽":477,"눈여아":478,"로토무":479,"유크시":480,"엠라이트":481,"아그놈":482,"디아루가":483,"펄기아":484,"히드런":485,"레지기가스":486,"기라티나":487,"크레세리아":488,"피오네":489,"마나피":490,"다크라이":491,"쉐이미":492,"아르세우스":493,"비크티니":494,"주리비얀":495,"샤비":496,"샤로다":497,"뚜꾸리":498,"차오꿀":499,"염무왕":500,"수댕이":501,"쌍검자비":502,"대검귀":503,"보르쥐":504,"보르그":505,"요테리":506,"하데리어":507,"바랜드":508,"쌔비냥":509,"레파르다스":510,"야나프":511,"야나키":512,"바오프":513,"바오키":514,"앗차프":515,"앗차키":516,"몽나":517,"몽얌나":518,"콩둘기":519,"유토브":520,"켄호로우":521,"줄뮤마":522,"제브라이카":523,"단굴":524,"암트르":525,"기가이어스":526,"또르박쥐":527,"맘박쥐":528,"두더류":529,"몰드류":530,"다부니":531,"으랏차":532,"토쇠골":533,"노보청":534,"동챙이":535,"두까비":536,"두빅굴":537,"던지미":538,"타격귀":539,"두르보":540,"두르쿤":541,"모아머":542,"마디네":543,"휠구":544,"펜드라":545,"소미안":546,"엘풍":547,"치릴리":548,"드레디어":549,"배쓰나이":550,"깜눈크":551,"악비르":552,"악비아르":553,"달막화":554,"불비달마":555,"마라카치":556,"돌살이":557,"암팰리스":558,"곤율랭":559,"곤율거니":560,"심보러":561,"데스마스":562,"데스니칸":563,"프로토가":564,"늑골라":565,"아켄":566,"아케오스":567,"깨봉이":568,"더스트나":569,"조로아":570,"조로아크":571,"치라미":572,"치라치노":573,"고디탱":574,"고디보미":575,"고디모아젤":576,"유니란":577,"듀란":578,"란쿨루스":579,"꼬지보리":580,"스완나":581,"바닐프티":582,"바닐리치":583,"배바닐라":584,"사철록":585,"바라철록":586,"에몽가":587,"딱정곤":588,"슈바르고":589,"깜놀버슬":590,"뽀록나":591,"탱그릴":592,"탱탱겔":593,"맘복치":594,"파쪼옥":595,"전툴라":596,"철시드":597,"너트령":598,"기어르":599,"기기어르":600,"기기기어르":601,"저리어":602,"저리릴":603,"저리더프":604,"리그레":605,"벰크":606,"불켜미":607,"램프라":608,"샹델라":609,"터검니":610,"액슨도":611,"액스라이즈":612,"코고미":613,"툰베어":614,"프리지오":615,"쪼마리":616,"어지리더":617,"메더":618,"비조푸":619,"비조도":620,"크리만":621,"골비람":622,"골루그":623,"자망칼":624,"절각참":625,"버프론":626,"수리둥보":627,"워글":628,"벌차이":629,"버랜지나":630,"앤티골":631,"아이앤트":632,"모노두":633,"디헤드":634,"삼삼드래":635,"활화르바":636,"불카모스":637,"코바르온":638,"테라키온":639,"비리디온":640,"토네로스":641,"볼트로스":642,"레시라무":643,"제크로무":644,"랜드로스":645,"큐레무":646,"케르디오":647,"메로엣타":648,"게노세크트":649,"도치마론":650,"도치보구":651,"브리가론":652,"푸호꼬":653,"테르나":654,"마폭시":655,"개구마르":656,"개굴반장":657,"개굴닌자":658,"파르빗":659,"파르토":660,"화살꼬빈":661,"불화살빈":662,"파이어로":663,"분이벌레":664,"분떠도리":665,"비비용":666,"레오꼬":667,"화염레오":668,"플라베베":669,"플라엣테":670,"플라제스":671,"메이클":672,"고고트":673,"판짱":674,"부란다":675,"트리미앙":676,"냐스퍼":677,"냐오닉스":678,"단칼빙":679,"쌍검킬":680,"킬가르도":681,"슈쁘":682,"프레프티르":683,"나룸퍼프":684,"나루림":685,"오케이징":686,"칼라마네로":687,"거북손손":688,"거북손데스":689,"수레기":690,"드래캄":691,"완철포":692,"블로스터":693,"목도리키텔":694,"일레도리자드":695,"티고라스":696,"견고라스":697,"아마루스":698,"아마루르가":699,"님피아":700,"루차불":701,"데덴네":702,"멜리시":703,"미끄메라":704,"미끄네일":705,"미끄래곤":706,"클레피":707,"나목령":708,"대로트":709,"호바귀":710,"펌킨인":711,"꽁어름":712,"크레베이스":713,"음뱃":714,"음번":715,"제르네아스":716,"이벨타르":717,"지가르데":718,"디안시":719,"후파":720,"볼케니온":721,"나몰빼미":722,"빼미스로우":723,"모크나이퍼":724,"냐오불":725,"냐오히트":726,"어흥염":727,"누리공":728,"키요공":729,"누리레느":730,"콕코구리":731,"크라파":732,"왕큰부리":733,"영구스":734,"형사구스":735,"턱지충이":736,"전지충이":737,"투구뿌논":738,"오기지게":739,"모단단게":740,"춤추새":741,"에블리":742,"에리본":743,"암멍이":744,"루가루암":745,"약어리":746,"시마사리":747,"더시마사리":748,"머드나기":749,"만마드":750,"물거미":751,"깨비물거미":752,"짜랑랑":753,"라란티스":754,"자마슈":755,"마셰이드":756,"야도뇽":757,"염뉴트":758,"포곰곰":759,"이븐곰":760,"달콤아":761,"달무리나":762,"달코퀸":763,"큐아링":764,"하랑우탄":765,"내던숭이":766,"꼬시레":767,"갑주무사":768,"모래꿍":769,"모래성이당":770,"해무기":771,"타입:널":772,"실버디":773,"메테노":774,"자말라":775,"폭거북스":776,"토게데마루":777,"따라큐":778,"치갈기":779,"할비롱":780,"타타륜":781,"짜랑꼬":782,"짜랑고우":783,"짜랑고우거":784,"카푸꼬꼬꼭":785,"카푸나비나":786,"카푸브루루":787,"카푸느지느":788,"코스모그":789,"코스모움":790,"솔가레오":791,"루나아라":792,"텅비드":793,"매시붕":794,"페로코체":795,"전수목":796,"철화구야":797,"종이신도":798,"악식킹":799,"네크로즈마":800,"마기아나":801,"마샤도":802,"베베놈":803,"아고용":804,"차곡차곡":805,"두파팡":806,"제라오라":807,"멜탄":808,"멜메탈":809,"흥나숭":810,"채키몽":811,"고릴타":812,"염버니":813,"래비풋":814,"에이스번":815,"울머기":816,"누겔레온":817,"인텔리레온":818,"탐리스":819,"요씽리스":820,"파라꼬":821,"파크로우":822,"아머까오":823,"두루지벌레":824,"레돔벌레":825,"이올브":826,"훔처우":827,"폭슬라이":828,"꼬모카":829,"백솜모카":830,"우르":831,"배우르":832,"깨물부기":833,"갈가부기":834,"멍파치":835,"펄스멍":836,"탄동":837,"탄차곤":838,"석탄산":839,"과사삭벌레":840,"애프룡":841,"단지래플":842,"모래뱀":843,"사다이사":844,"윽우지":845,"찌로꼬치":846,"꼬치조":847,"일레즌":848,"스트린더":849,"태우지네":850,"다태우지네":851,"때때무노":852,"케오퍼스":853,"데인차":854,"포트데스":855,"몸지브림":856,"손지브림":857,"브리무음":858,"메롱꿍":859,"쏘겨모":860,"오롱털":861,"가로막구리":862,"나이킹":863,"산호르곤":864,"창파나이트":865,"마임꽁꽁":866,"데스판":867,"마빌크":868,"마휘핑":869,"대여르":870,"찌르성게":871,"누니머기":872,"모스노우":873,"돌헨진":874,"빙큐보":875,"에써르":876,"모르페코":877,"끼리동":878,"대왕끼리동":879,"파치래곤":880,"파치르돈":881,"어래곤":882,"어치르돈":883,"두랄루돈":884,"드라꼰":885,"드래런치":886,"드래펄트":887,"자시안":888,"자마젠타":889,"무한다이노":890,"치고마":891,"우라오스":892,"자루도":893,"레지에레키":894,"레지드래고":895,"블리자포스":896,"레이스포스":897,"버드렉스":898,"신비록":899,"사마자르":900,"다투곰":901,"대쓰여너":902,"포푸니크":903,"장침바루":904,"러브로스":905,"나오하":906,"나로테":907,"마스카나":908,"뜨아거":909,"악뜨거":910,"라우드본":911,"꾸왁스":912,"아꾸왁":913,"웨이니발":914,"맛보돈":915,"퍼퓨돈":916,"타랜툴라":917,"트래피더":918,"콩알뚜기":919,"엑스레그":920,"빠모":921,"빠모트":922,"빠르모트":923,"두리쥐":924,"파밀리쥐":925,"쫀도기":926,"바우첼":927,"미니브":928,"올리뇨":929,"올리르바":930,"시비꼬":931,"베베솔트":932,"스태솔트":933,"콜로솔트":934,"카르본":935,"카디나르마":936,"파라블레이즈":937,"빈나두":938,"찌리배리":939,"찌리비":940,"찌리비크":941,"오라티프":942,"마피티프":943,"땃쭈르":944,"태깅구르":945,"그푸리":946,"공푸리":947,"들눈해":948,"육파리":949,"절벼게":950,"캡싸이":951,"스코빌런":952,"구르데":953,"베라카스":954,"하느라기":955,"클레스퍼트라":956,"어리짱":957,"벼리짱":958,"두드리짱":959,"바다그다":960,"바닥트리오":961,"떨구새":962,"맨돌핀":963,"돌핀맨":964,"부르롱":965,"부르르룸":966,"모토마":967,"꿈트렁":968,"초롱순":969,"킬라플로르":970,"망망이":971,"묘두기":972,"꼬이밍고":973,"터벅고래":974,"우락고래":975,"가비루사":976,"어써러셔":977,"싸리용":978,"저승갓숭":979,"토오":980,"키키링":981,"노고고치":982,"대도각참":983,"위대한엄니":984,"우렁찬꼬리":985,"사나운버섯":986,"날개치는머리":987,"땅을기는날개":988,"모래털가죽":989,"무쇠바퀴":990,"무쇠보따리":991,"무쇠손":992,"무쇠머리":993,"무쇠독나방":994,"무쇠가시":995,"드니차":996,"드니꽁":997,"드닐레이브":998,"모으령":999,"타부자고":1000,"총지엔":1001,"파오젠":1002,"딩루":1003,"위유이":1004,"고동치는달":1005,"무쇠무인":1006,"코라이돈":1007,"미라이돈":1008,"굽이치는물결":1009,"무쇠잎새":1010,"과미르":1011,"차데스":1012,"그우린차":1013,"조타구":1014,"이야후":1015,"기로치":1016,"오거폰":1017,"브리두라스":1018,"과미드라":1019,"꿰뚫는화염":1020,"날뛰는우레":1021,"무쇠암석":1022,"무쇠감투":1023,"테라파고스":1024,"복숭악동":1025};
+
+    function TypeBadge({ type }) {
+      const info = TYPE_INFO[type] || { ko:type, color:"#777" };
+      return (
+        <span className="rounded px-2.5 py-0.5 text-[11px] font-bold text-white shadow"
+          style={{ backgroundColor: info.color }}>{info.ko}</span>
+      );
+    }
+
+    function StatBar({ name, value }) {
+      const pct = Math.min(100, (value/180)*100);
+      return (
+        <div className="flex items-center gap-2">
+          <span className="lcd-font w-11 shrink-0 text-[10px] font-bold opacity-80">{STAT_KO[name]||name}</span>
+          <span className="lcd-font w-7 shrink-0 text-right text-[10px] font-bold tabular-nums">{value}</span>
+          <div className="h-2 flex-1 overflow-hidden rounded-sm bg-[#5c7a08]/60">
+            <div className="h-full animate-grow-bar bg-[#143601]" style={{ width: pct+"%" }} />
+          </div>
+        </div>
+      );
+    }
+
+    /* 좌측 큰 스크린 — 포켓몬 비주얼 */
+    function MainScreen({ status, data, errorMsg }) {
+      return (
+        <div className="screen-bezel rounded-md p-2.5">
+          <div className="screen relative aspect-square w-full overflow-hidden rounded-sm">
+            {/* 스캔라인 효과 */}
+            <div className="scan pointer-events-none absolute inset-x-0 top-0 h-12 bg-white/10" />
+            <div className="screen-glare pointer-events-none absolute inset-0" />
+
+            {status === "loading" && (
+              <div className="flex h-full flex-col items-center justify-center gap-3 text-[#143601]">
+                <div className="h-9 w-9 animate-spin360 rounded-full border-4 border-[#143601]/30 border-t-[#143601]" />
+                <p className="lcd-font text-xs font-bold">SEARCHING...</p>
+              </div>
+            )}
+
+            {status === "error" && (
+              <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-[#143601]">
+                <div className="text-3xl">❌</div>
+                <p className="lcd-font text-[11px] font-bold leading-snug">{errorMsg}</p>
+              </div>
+            )}
+
+            {status === "idle" && (
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-[#143601]/70">
+                <div className="text-5xl">⚇</div>
+                <p className="lcd-font text-[11px] font-bold">NO DATA</p>
+                <p className="lcd-font text-[10px]">포켓몬을 검색하세요</p>
+              </div>
+            )}
+
+            {status === "done" && data && (() => {
+              const img = data.sprites?.other?.["official-artwork"]?.front_default || data.sprites?.front_default;
+              return (
+                <div className="animate-pop flex h-full flex-col">
+                  <div className="flex items-center justify-between px-2 pt-1.5">
+                    <span className="lcd-font text-[11px] font-bold">No.{String(data.id).padStart(3,"0")}</span>
+                    <span className="lcd-font text-[11px] font-bold">{data.korName || data.name}</span>
+                  </div>
+                  <div className="flex flex-1 items-center justify-center">
+                    {img
+                      ? <img src={img} alt={data.name} className="h-[78%] w-[78%] animate-floaty object-contain"
+                          style={{ filter:"drop-shadow(0 6px 6px rgba(0,40,0,.45))" }} />
+                      : <span className="lcd-font text-xs">NO IMAGE</span>}
+                  </div>
+                  <div className="flex items-center justify-center gap-1.5 pb-1.5">
+                    {data.types.map(t => <TypeBadge key={t.type.name} type={t.type.name} />)}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      );
+    }
+
+    /* 우측 데이터 스크린 — 텍스트/능력치 */
+    function DataScreen({ status, data }) {
+      return (
+        <div className="screen-bezel rounded-md p-2">
+          <div className="screen relative min-h-[150px] overflow-hidden rounded-sm px-2.5 py-2">
+            <div className="screen-glare pointer-events-none absolute inset-0" />
+            {status === "done" && data ? (
+              <div className="animate-pop relative space-y-2">
+                <div className="lcd-font grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] font-bold">
+                  <div>키 : {(data.height/10).toFixed(1)}m</div>
+                  <div>무게 : {(data.weight/10).toFixed(1)}kg</div>
+                </div>
+                <div className="my-1 border-t border-[#143601]/30" />
+                <div className="space-y-1">
+                  {data.stats.map(s => <StatBar key={s.stat.name} name={s.stat.name} value={s.base_stat} />)}
+                </div>
+                <div className="lcd-font pt-0.5 text-right text-[10px] font-bold opacity-80">
+                  TOTAL {data.stats.reduce((a,b)=>a+b.base_stat,0)}
+                </div>
+              </div>
+            ) : (
+              <div className="lcd-font flex h-[134px] items-center justify-center text-[11px] font-bold text-[#143601]/60">
+                {status === "loading" ? "LOADING DATA..." : "데이터 대기 중"}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [query, setQuery] = useState("");
+      const [data, setData] = useState(null);
+      const [status, setStatus] = useState("idle");
+      const [errorMsg, setErrorMsg] = useState("");
+      const inputRef = useRef(null);
+
+      useEffect(() => { inputRef.current?.focus(); }, []);
+
+      async function search(raw) {
+        const trimmed = String(raw).trim();
+        if (!trimmed) return;
+        // 한글 이름이면 도감 번호로 변환 (PokeAPI는 한글 검색어를 못 받음)
+        const korId = KOR_TO_ID[trimmed];
+        const q = korId ? String(korId) : trimmed.toLowerCase();
+        setStatus("loading"); setErrorMsg("");
+        try {
+          const res = await fetch("https://pokeapi.co/api/v2/pokemon/" + encodeURIComponent(q));
+          if (!res.ok) throw new Error("notfound");
+          const pokemon = await res.json();
+          let korName = null;
+          try {
+            const sres = await fetch(pokemon.species.url);
+            if (sres.ok) {
+              const species = await sres.json();
+              korName = species.names?.find(n => n.language.name === "ko")?.name || null;
+            }
+          } catch(_) {}
+          setData({ ...pokemon, korName });
+          setStatus("done");
+        } catch(e) {
+          setData(null); setStatus("error");
+          setErrorMsg("‘"+raw+"’ 없음. 한글·영문명/번호(1~1025)");
+        }
+      }
+
+      function onSubmit(e){ e.preventDefault(); search(query); }
+      function randomPokemon(){ const id = Math.floor(Math.random()*1025)+1; setQuery(String(id)); search(id); }
+      function step(delta){
+        const cur = data?.id || 0;
+        const next = Math.min(1025, Math.max(1, cur + delta));
+        setQuery(String(next)); search(next);
+      }
+
+      return (
+        <div className="w-full max-w-3xl">
+          {/* 본체 */}
+          <div className="dex-shell relative rounded-[26px] p-3 sm:p-5">
+            {/* 상단 데코 바 */}
+            <div className="mb-3 flex items-center gap-3 px-1">
+              <div className="big-lens relative h-12 w-12 rounded-full sm:h-14 sm:w-14" />
+              <div className="flex gap-2">
+                <span className="led blink h-3 w-3 rounded-full bg-[#f04545] text-[#f04545]" />
+                <span className="led h-3 w-3 rounded-full bg-[#f5c542] text-[#f5c542]" />
+                <span className="led h-3 w-3 rounded-full bg-[#46c84a] text-[#46c84a]" />
+              </div>
+              <div className="ml-auto pr-1">
+                <div className="lcd-font text-[11px] font-extrabold tracking-widest text-white/90 drop-shadow">POKÉDEX</div>
+              </div>
+            </div>
+
+            {/* 본체 2단 그리드 */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:gap-0">
+              {/* 좌측 패널 */}
+              <div className="rounded-2xl bg-[#c42424]/50 p-3 shadow-inner sm:flex-1">
+                <MainScreen status={status} data={data} errorMsg={errorMsg} />
+                {/* 스피커/디테일 */}
+                <div className="mt-3 flex items-center justify-between px-1">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#9bbc0f] shadow-inner">
+                    <span className="led h-5 w-5 rounded-full bg-[#c8e84a] text-[#c8e84a]" />
+                  </div>
+                  <div className="space-y-[3px]">
+                    {[0,1,2,3].map(i => <div key={i} className="speaker-line h-1 w-16 rounded-full" />)}
+                  </div>
+                </div>
+              </div>
+
+              {/* 경첩 */}
+              <div className="hidden w-3 sm:block hinge mx-1 rounded" />
+
+              {/* 우측 패널 */}
+              <div className="rounded-2xl bg-[#c42424]/50 p-3 shadow-inner sm:w-[46%]">
+                <DataScreen status={status} data={data} />
+
+                {/* 검색 입력 */}
+                <form onSubmit={onSubmit} className="mt-3 flex gap-1.5">
+                  <input
+                    ref={inputRef}
+                    value={query}
+                    onChange={(e)=>setQuery(e.target.value)}
+                    placeholder="피카츄 / pikachu / 25"
+                    className="lcd-font min-w-0 flex-1 rounded-md border-2 border-[#7a1010] bg-[#1b1e26] px-2.5 py-2 text-xs font-bold text-[#9bbc0f] outline-none placeholder:text-[#5c7a08] focus:border-[#f5c542]"
+                  />
+                  <button type="submit"
+                    className="key-btn rounded-md bg-[#2196f3] px-3 py-2 text-xs font-extrabold text-white">검색</button>
+                </form>
+
+                {/* 컨트롤 영역: 십자키 + 버튼 */}
+                <div className="mt-3 flex items-center justify-between">
+                  {/* 십자 방향키 (이전/다음) */}
+                  <div className="relative h-[68px] w-[68px]">
+                    <div className="dpad absolute left-1/2 top-0 h-5 w-6 -translate-x-1/2 rounded-t" />
+                    <div className="dpad absolute bottom-0 left-1/2 h-5 w-6 -translate-x-1/2 rounded-b" />
+                    <button onClick={()=>step(-1)} title="이전 도감"
+                      className="dpad absolute left-0 top-1/2 flex h-6 w-5 -translate-y-1/2 items-center justify-center rounded-l text-white active:brightness-125">◀</button>
+                    <button onClick={()=>step(1)} title="다음 도감"
+                      className="dpad absolute right-0 top-1/2 flex h-6 w-5 -translate-y-1/2 items-center justify-center rounded-r text-white active:brightness-125">▶</button>
+                    <div className="dpad absolute left-1/2 top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-sm" />
+                  </div>
+
+                  {/* 액션 버튼 */}
+                  <div className="flex flex-col items-end gap-2">
+                    <button onClick={randomPokemon}
+                      className="round-btn flex h-12 w-12 items-center justify-center rounded-full bg-[#f5c542] text-xl active:brightness-110" title="랜덤 포켓몬">🎲</button>
+                    <div className="flex gap-2">
+                      <button onClick={()=>{ setData(null); setStatus("idle"); setQuery(""); inputRef.current?.focus(); }}
+                        className="round-btn h-6 w-6 rounded-full bg-[#e74c3c]" title="초기화" />
+                      <button onClick={()=>step(1)}
+                        className="round-btn h-6 w-6 rounded-full bg-[#2ecc71]" title="다음" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 빠른 검색 칩 (한글) */}
+                <div className="mt-3 grid grid-cols-3 gap-1.5">
+                  {["피카츄","이상해씨","파이리","꼬부기","이브이","뮤츠"].map(name => (
+                    <button key={name} onClick={()=>{ setQuery(name); search(name); }}
+                      className="key-btn lcd-font truncate rounded bg-[#3a3f47] px-1.5 py-1 text-[10px] font-bold text-[#9bbc0f] active:brightness-125">
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p className="lcd-font mt-4 text-center text-[11px] text-white/40">
+            데이터 · <a href="https://pokeapi.co" target="_blank" className="underline">PokeAPI</a> · 포켓컴 디자인
+          </p>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<!--
+  실시간 코인 시세 대시보드 — 서버 버전 (index.html)
+  ▶ 이 파일은 "셸(shell)"만 담당한다: CDN 라이브러리 로드 + 코인베이스 스타일 베이스 + #root.
+    실제 화면(React 컴포넌트)·데이터 로직은 client.js 가 담당한다.
+  ▶ 디자인: 코인베이스(coinbase.com/explore) 룩 — 밝은 화이트 테마 + 리스트(테이블) 레이아웃.
+  ▶ 모든 데이터는 우리 서버(server.js)의 /api/* 를 same-origin 으로 호출한다.
+    (CoinGecko 를 클라이언트에서 직접 부르지 않는다 → CORS·키 노출 방지)
+-->
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>암호화폐 시세 · Crypto prices</title>
+
+  <!-- Tailwind CDN (스타일링용) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- 코인베이스 느낌의 산세리프(Inter). 시스템 폰트로도 폴백 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- 코인베이스 팔레트를 Tailwind 토큰으로 등록 -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            cbblue:  '#0052FF',
+            cbblueHover: '#0043CC',
+            cbink:   '#0A0B0D', // 본문 거의 검정
+            cbgray:  '#5B616E', // 보조 회색
+            cbline:  '#EFF0F3', // 옅은 구분선
+            cbborder:'#E5E7EB', // 테두리
+            cbhover: '#F5F6F8', // 행 hover 배경
+            cbup:    '#098551', // 상승 텍스트
+            cbupBright: '#00C087',
+            cbdown:  '#CF202F', // 하락 텍스트
+            cbdownBright: '#D8442F',
+          },
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', '"Apple SD Gothic Neo"', 'Pretendard', '"Malgun Gothic"', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- React 18 + ReactDOM + Babel standalone (브라우저에서 JSX 변환) -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    /* Tailwind 으로 표현하기 어려운 부분만 커스텀 CSS */
+    :root {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+        "Pretendard", "Malgun Gothic", sans-serif;
+      /* 숫자 정렬감(tabular) 기본화 */
+      font-variant-numeric: tabular-nums;
+    }
+    body { margin: 0; background: #FFFFFF; color: #0A0B0D; }
+
+    /* 스켈레톤 로딩 shimmer (라이트 톤) */
+    @keyframes shimmer { 0% { background-position: -700px 0; } 100% { background-position: 700px 0; } }
+    .skeleton {
+      background: linear-gradient(100deg, #EFF0F3 30%, #F7F8FA 50%, #EFF0F3 70%);
+      background-size: 1400px 100%;
+      animation: shimmer 1.6s infinite linear;
+    }
+
+    /* fade-in */
+    @keyframes fadeInUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeInUp 0.35s ease-out both; }
+
+    /* 상세 차트 라인 그리기 애니메이션 (선이 좌→우로 그려지는 느낌) */
+    @keyframes drawLine { from { stroke-dashoffset: var(--dash, 2000); } to { stroke-dashoffset: 0; } }
+    .draw-line { animation: drawLine 0.7s ease-out both; }
+
+    /* 클릭 가능한 행임을 알리는 커서 */
+    .row-clickable { cursor: pointer; }
+
+    /* 가격 갱신 flash — 코인베이스 톤으로 은은하게(초록/빨강 옅게) */
+    @keyframes flashUp {
+      0%   { background-color: rgba(0,192,135,0.0); }
+      22%  { background-color: rgba(0,192,135,0.14); }
+      100% { background-color: rgba(0,192,135,0.0); }
+    }
+    @keyframes flashDown {
+      0%   { background-color: rgba(216,68,47,0.0); }
+      22%  { background-color: rgba(216,68,47,0.13); }
+      100% { background-color: rgba(216,68,47,0.0); }
+    }
+    .flash-up   { animation: flashUp   0.9s ease-out; }
+    .flash-down { animation: flashDown 0.9s ease-out; }
+
+    /* 커스텀 스크롤바 (라이트) */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: #D7D9DE; border-radius: 9px; }
+    ::-webkit-scrollbar-thumb:hover { background: #C2C5CC; }
+    ::-webkit-scrollbar-track { background: transparent; }
+  </style>
+</head>
+<body class="min-h-screen">
+  <!-- React 앱이 이 안에 렌더된다 -->
+  <div id="root"></div>
+
+  <!--
+    로직 담당: 같은 서버에서 불러온다(same-origin).
+    type="text/babel" 이므로 브라우저가 Babel 로 JSX 를 변환한 뒤 실행한다.
+  -->
+  <script type="text/babel" src="/client.js"></script>
+</body>
+</html>

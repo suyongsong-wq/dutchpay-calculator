@@ -1,0 +1,13 @@
+{
+  "name": "about-me-qa-app",
+  "version": "1.0.0",
+  "description": "about-me.md를 컨텍스트로 실어 보내, 나에 대해 무엇이든 답하는 Q&A 앱 (Context + Server + AI)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<!--
+  나만의 이미지 생성 서비스 — 서버 버전 (index.html)
+  ▶ 단일 HTML 버전과 달리, 이 파일은 "마크업과 스타일"만 담당한다.
+    실제 로직(스타일 불러오기·이미지 생성 요청)은 client.js(바닐라 JS)가,
+    프롬프트 조합·이미지 프록시는 server.js(백엔드)가 담당한다.
+  ▶ client.js 는 같은 서버(/client.js)에서 불러온다(same-origin).
+-->
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>나만의 이미지 생성기 · AI IMAGE SERVER</title>
+
+  <!-- Tailwind CDN (스타일링용). 로직은 client.js 가 담당 -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    /* Tailwind 으로 표현하기 어려운 부분만 커스텀 CSS */
+    :root {
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+        "Pretendard", "Malgun Gothic", sans-serif;
+    }
+    body { margin: 0; }
+
+    /* 배경 그라데이션 (보라/블루 다크 테마) */
+    .studio-bg {
+      background:
+        radial-gradient(1100px 600px at 12% -8%, rgba(139, 92, 246, 0.28), transparent 60%),
+        radial-gradient(900px 600px at 92% 8%, rgba(56, 189, 248, 0.22), transparent 55%),
+        linear-gradient(180deg, #0b0b18 0%, #0a0a14 55%, #07070f 100%);
+    }
+
+    /* 결과 영역 스켈레톤 로딩 애니메이션 */
+    @keyframes shimmer { 0% { background-position: -700px 0; } 100% { background-position: 700px 0; } }
+    .skeleton {
+      background: linear-gradient(100deg, rgba(255,255,255,0.04) 30%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.04) 70%);
+      background-size: 1400px 100%;
+      animation: shimmer 1.6s infinite linear;
+    }
+
+    /* 생성 결과 이미지 fade-in */
+    @keyframes fadeInScale { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
+    .fade-in { animation: fadeInScale 0.5s ease-out; }
+
+    /* 커스텀 스크롤바 */
+    ::-webkit-scrollbar { width: 9px; height: 9px; }
+    ::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.4); border-radius: 9px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+
+    /* 스타일 카드 선택 강조 (client.js 가 .is-selected 클래스를 토글) */
+    .style-card { transition: all .2s ease; }
+    .style-card .accent-bar { opacity: 0; transition: opacity .2s ease; }
+    .style-card:hover .accent-bar { opacity: .6; }
+    .style-card.is-selected {
+      border-color: rgba(167,139,250,0.8);
+      background: rgba(255,255,255,0.08);
+      box-shadow: 0 10px 30px rgba(76,29,149,0.4);
+      transform: scale(1.02);
+    }
+    .style-card.is-selected .accent-bar { opacity: 1; }
+    .style-card.is-selected .check-badge { display: inline-flex; }
+    .style-card .check-badge { display: none; }
+
+    /* provider(이미지 엔진) 세그먼트 선택 강조 — client.js 가 .is-active 토글 */
+    .provider-card { transition: all .2s ease; }
+    .provider-card.is-active {
+      border-color: rgba(167,139,250,0.8);
+      background: rgba(255,255,255,0.08);
+      box-shadow: 0 10px 30px rgba(76,29,149,0.35);
+    }
+    .provider-card .provider-check { display: none; }
+    .provider-card.is-active .provider-check { display: inline; }
+  </style>
+</head>
+<body class="studio-bg text-slate-100 min-h-screen">
+  <div class="min-h-screen">
+
+    <!-- ===== Header ===== -->
+    <header class="text-center pt-12 pb-8 px-4">
+      <!-- 서버 버전임을 알리는 badge -->
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold tracking-[0.18em] uppercase
+        bg-white/5 border border-white/10 text-violet-200 backdrop-blur">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        AI IMAGE SERVER
+      </span>
+      <h1 class="mt-5 text-4xl sm:text-6xl font-black tracking-tight
+        bg-gradient-to-r from-violet-300 via-fuchsia-300 to-sky-300 bg-clip-text text-transparent">
+        나만의 이미지 생성기
+      </h1>
+      <p class="mt-4 text-sm sm:text-base text-slate-400 max-w-xl mx-auto leading-relaxed">
+        화풍을 고르고 떠오르는 장면을 한 줄로 적으면, <b class="text-slate-200">서버</b>가 프롬프트를 조합해 그림으로 만들어 드려요.
+        <br class="hidden sm:block" />
+        <span class="text-slate-500">Node.js 서버 + Pollinations.ai · 프롬프트 조합·이미지 프록시는 서버가 담당</span>
+      </p>
+    </header>
+
+    <main class="max-w-5xl mx-auto px-4 sm:px-6 pb-20 space-y-8">
+
+      <!-- ⓪ 이미지 엔진(provider) 선택 — 세그먼트 버튼 2개 -->
+      <!-- client.js 가 .is-active 토글로 선택 상태를 관리하고,
+           선택된 provider 를 /api/image · /api/preview 쿼리에 반영한다. -->
+      <section>
+        <div class="flex items-center gap-2 mb-4">
+          <span class="grid place-items-center w-7 h-7 rounded-lg bg-violet-500/20 text-violet-300 text-sm font-bold">★</span>
+          <h2 class="text-lg font-bold text-slate-100">이미지 엔진 선택</h2>
+          <span class="text-xs text-slate-500">— 어떤 AI 로 그릴까요?</span>
+        </div>
+        <div id="provider-group"
+          class="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl p-3">
+          <!-- Pollinations (기본) -->
+          <button type="button" data-provider="pollinations"
+            class="provider-card is-active text-left rounded-xl p-4 border border-white/10 bg-white/[0.02]
+              hover:bg-white/[0.05] focus:outline-none focus:ring-2 focus:ring-violet-400/60 transition-all">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-[15px] text-slate-50">🌸 Pollinations</span>
+              <span class="provider-check text-violet-300 text-xs font-bold">✔ 선택됨</span>
+            </div>
+            <div class="mt-1 text-xs text-slate-400 leading-snug">무료 · API 키 불필요 · 바로 사용 가능</div>
+          </button>
+          <!-- fal.ai FLUX -->
+          <button type="button" data-provider="fal"
+            class="provider-card text-left rounded-xl p-4 border border-white/10 bg-white/[0.02]
+              hover:bg-white/[0.05] focus:outline-none focus:ring-2 focus:ring-violet-400/60 transition-all">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-[15px] text-slate-50">⚡ fal.ai FLUX</span>
+              <span class="provider-check text-violet-300 text-xs font-bold">✔ 선택됨</span>
+            </div>
+            <div class="mt-1 text-xs text-slate-400 leading-snug">고품질 · API 키 필요 (FAL_KEY)</div>
+          </button>
+          <!-- Hugging Face FLUX (무료 토큰) -->
+          <button type="button" data-provider="huggingface"
+            class="provider-card text-left rounded-xl p-4 border border-white/10 bg-white/[0.02]
+              hover:bg-white/[0.05] focus:outline-none focus:ring-2 focus:ring-violet-400/60 transition-all">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-[15px] text-slate-50">🤗 HuggingFace</span>
+              <span class="provider-check text-violet-300 text-xs font-bold">✔ 선택됨</span>
+            </div>
+            <div class="mt-1 text-xs text-slate-400 leading-snug">무료 토큰 · FLUX.1-schnell (HF_TOKEN)</div>
+          </button>
+        </div>
+      </section>
+
+      <!-- ① 스타일 선택 그리드 (client.js 가 /api/styles 로 채움) -->
+      <section>
+        <div class="flex items-center gap-2 mb-4">
+          <span class="grid place-items-center w-7 h-7 rounded-lg bg-violet-500/20 text-violet-300 text-sm font-bold">1</span>
+          <h2 class="text-lg font-bold text-slate-100">화풍 / 분위기 선택</h2>
+          <span class="text-xs text-slate-500">— 카드를 누르면 선택돼요</span>
+        </div>
+        <!-- 카드들이 여기에 동적으로 들어간다 -->
+        <div id="style-grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          <!-- 로딩 placeholder (8칸) -->
+          <div class="h-24 rounded-2xl skeleton border border-white/10"></div>
+          <div class="h-24 rounded-2xl skeleton border border-white/10"></div>
+          <div class="h-24 rounded-2xl skeleton border border-white/10"></div>
+          <div class="h-24 rounded-2xl skeleton border border-white/10"></div>
+        </div>
+      </section>
+
+      <!-- ② 프롬프트 입력 -->
+      <section>
+        <div class="flex items-center gap-2 mb-4">
+          <span class="grid place-items-center w-7 h-7 rounded-lg bg-violet-500/20 text-violet-300 text-sm font-bold">2</span>
+          <h2 class="text-lg font-bold text-slate-100">무엇을 그릴까요?</h2>
+        </div>
+        <div class="rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-2xl shadow-black/40 p-5">
+          <label for="prompt" class="sr-only">이미지 프롬프트</label>
+          <textarea
+            id="prompt"
+            rows="3"
+            placeholder="예) 노을 지는 바닷가를 걷는 고양이 / 우주를 나는 고래 / 커피를 마시는 로봇..."
+            class="w-full resize-none rounded-xl bg-black/30 border border-white/10 px-4 py-3 text-[15px] text-slate-100
+              placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-400/50 focus:border-violet-400/40"></textarea>
+
+          <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <div class="text-xs text-slate-500">
+              현재 화풍: <span id="current-style" class="text-violet-300 font-semibold">불러오는 중…</span>
+              <span class="ml-2 text-slate-600">· Enter로 생성</span>
+            </div>
+            <button id="generate-btn" type="button" disabled
+              class="inline-flex items-center justify-center gap-2 font-semibold rounded-xl transition-all duration-200 select-none
+                px-7 py-3.5 text-base text-white bg-gradient-to-r from-violet-600 to-fuchsia-600
+                hover:from-violet-500 hover:to-fuchsia-500 shadow-lg shadow-violet-900/40 active:scale-[0.98]
+                focus:outline-none focus:ring-2 focus:ring-violet-400/50 disabled:opacity-40 disabled:cursor-not-allowed">
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 3l1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3zM18 12l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2z"/>
+              </svg>
+              이미지 생성
+            </button>
+          </div>
+
+          <!-- 입력이 비었을 때 안내 -->
+          <p id="empty-hint" class="mt-3 text-xs text-amber-300/80">✦ 그리고 싶은 장면을 한 줄 적으면 버튼이 활성화돼요.</p>
+
+          <!-- 최종 조합 프롬프트 미리보기 (교육용 — 서버가 /api/preview 로 돌려줌) -->
+          <div id="preview-box" class="mt-4 rounded-xl bg-black/40 border border-white/5 p-3 hidden">
+            <div class="text-[11px] uppercase tracking-wider text-slate-500 mb-1">
+              서버가 만든 최종 프롬프트 (내 입력 + 스타일 키워드)
+            </div>
+            <code id="preview-text" class="block text-xs text-emerald-300/90 break-words leading-relaxed"></code>
+          </div>
+        </div>
+      </section>
+
+      <!-- ③ 결과 이미지 영역 -->
+      <section>
+        <div class="flex items-center gap-2 mb-4">
+          <span class="grid place-items-center w-7 h-7 rounded-lg bg-violet-500/20 text-violet-300 text-sm font-bold">3</span>
+          <h2 class="text-lg font-bold text-slate-100">생성 결과</h2>
+        </div>
+
+        <div class="rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-2xl shadow-black/40 p-4 sm:p-6">
+          <div class="relative w-full aspect-square max-w-[640px] mx-auto rounded-2xl overflow-hidden bg-black/40 border border-white/10">
+
+            <!-- 생성 전: 안내 placeholder -->
+            <div id="placeholder" class="absolute inset-0 grid place-items-center text-center px-6">
+              <div>
+                <div class="text-5xl mb-3">🪄</div>
+                <p class="text-slate-400 text-sm">화풍을 고르고 프롬프트를 입력한 뒤<br/>"이미지 생성"을 눌러보세요.</p>
+              </div>
+            </div>
+
+            <!-- 로딩 중: 스켈레톤 + 스피너 -->
+            <div id="loading" class="absolute inset-0 skeleton grid place-items-center hidden">
+              <div class="flex flex-col items-center gap-3">
+                <div class="w-12 h-12 rounded-full border-4 border-white/15 border-t-violet-400 animate-spin"></div>
+                <p class="text-sm text-slate-300">서버가 그림을 그려 받아오는 중…</p>
+                <p class="text-xs text-slate-500">flux 모델은 보통 5~15초 정도 걸려요</p>
+              </div>
+            </div>
+
+            <!-- 에러 처리 -->
+            <div id="error" class="absolute inset-0 grid place-items-center text-center px-6 hidden">
+              <div>
+                <div class="text-4xl mb-2">⚠️</div>
+                <p id="error-text" class="text-rose-300 text-sm mb-3">이미지를 불러오지 못했어요.<br/>잠시 후 다시 시도해 주세요.</p>
+                <button id="retry-btn" type="button"
+                  class="inline-flex items-center gap-2 font-semibold rounded-xl px-3 py-1.5 text-sm
+                    text-slate-100 bg-white/8 hover:bg-white/15 border border-white/10 active:scale-[0.98]">다시 시도</button>
+              </div>
+            </div>
+
+            <!-- 결과 이미지 (서버의 /api/image 를 src 로 사용 → same-origin) -->
+            <img id="result-img" alt="" class="w-full h-full object-cover opacity-0 transition-opacity duration-300" />
+          </div>
+
+          <!-- 결과 하단: 액션 버튼 + 정보 -->
+          <div id="result-actions" class="mt-5 space-y-4 hidden">
+            <div class="flex flex-wrap justify-center gap-3">
+              <button id="regenerate-btn" type="button"
+                class="inline-flex items-center gap-2 font-semibold rounded-xl px-5 py-2.5 text-sm
+                  text-slate-100 bg-white/8 hover:bg-white/15 border border-white/10 active:scale-[0.98]">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M5 9a7 7 0 0111-3.5L20 9M19 15a7 7 0 01-11 3.5L4 15"/>
+                </svg>
+                다시 생성
+              </button>
+              <!-- 다운로드: server가 same-origin 프록시라 a[download] 로 바로 저장됨 -->
+              <a id="download-link" download
+                class="inline-flex items-center gap-2 font-semibold rounded-xl px-5 py-2.5 text-sm cursor-pointer
+                  text-white bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500
+                  shadow-lg shadow-violet-900/40 active:scale-[0.98]">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/>
+                </svg>
+                다운로드
+              </a>
+            </div>
+
+            <div class="rounded-xl bg-black/40 border border-white/5 p-3 text-center">
+              <p class="text-xs text-slate-400">
+                <span class="text-slate-500">사용된 화풍</span>
+                <span id="used-style" class="text-violet-300 font-semibold"></span>
+                <span class="mx-2 text-slate-700">|</span>
+                <span class="text-slate-500">seed</span>
+                <span id="used-seed" class="text-slate-300 font-mono"></span>
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="text-center pb-10 text-xs text-slate-600">
+      하버스쿨 AI 교육 · Network + AI 실습 · 서버 버전 (server.js + index.html + client.js · 바닐라 JS)
+    </footer>
+  </div>
+
+  <!-- 로직 담당: 같은 서버에서 불러온다 -->
+  <script src="/client.js"></script>
+</body>
+</html>

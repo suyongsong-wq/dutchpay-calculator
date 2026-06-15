@@ -1,0 +1,15 @@
+{
+  "name": "ai-dream-interpreter",
+  "version": "1.0.0",
+  "description": "AI 꿈해몽 앱 - OpenAI API로 어젯밤 꿈을 풀이해주는 서버 (한줄요약/키워드/길흉/조언/행운지수)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

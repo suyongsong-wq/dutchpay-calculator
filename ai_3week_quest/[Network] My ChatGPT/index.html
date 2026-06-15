@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>심심이 — 수다 챗봇 🐤</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .msg-anim { animation: fadeInUp 0.22s ease-out; }
+
+    @keyframes typingBounce {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+    .typing-dot { animation: typingBounce 1.2s infinite ease-in-out; }
+
+    /* 심심이 마스코트가 살짝 까딱거리는 애니메이션 */
+    @keyframes wobble {
+      0%, 100% { transform: rotate(-4deg); }
+      50% { transform: rotate(4deg); }
+    }
+    .wobble { animation: wobble 2.4s ease-in-out infinite; }
+
+    .chat-scroll::-webkit-scrollbar { width: 8px; }
+    .chat-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 8px; }
+    .chat-scroll::-webkit-scrollbar-track { background: transparent; }
+  </style>
+</head>
+<body class="bg-yellow-50">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    // ========================================
+    // 🎨 공통 컴포넌트
+    // ========================================
+    function Button({ variant = "primary", size = "md", disabled = false, onClick, className = "", children, type = "button", ...rest }) {
+      const base = "inline-flex items-center justify-center font-bold rounded-full transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95";
+      const variants = {
+        primary: "bg-yellow-400 text-yellow-950 hover:bg-yellow-300 focus:ring-yellow-300 shadow-sm",
+        secondary: "bg-white text-slate-700 border border-yellow-200 hover:bg-yellow-50 focus:ring-yellow-200",
+        ghost: "bg-transparent text-slate-500 hover:bg-yellow-100 focus:ring-yellow-200",
+      };
+      const sizes = { sm: "text-sm px-3 py-1.5", md: "text-sm px-4 py-2.5", lg: "text-base px-6 py-3" };
+      return (
+        <button type={type} disabled={disabled} onClick={onClick}
+          className={`${base} ${variants[variant]} ${sizes[size]} ${className}`} {...rest}>
+          {children}
+        </button>
+      );
+    }
+
+    function Badge({ children, className = "" }) {
+      return (
+        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${className}`}>
+          {children}
+        </span>
+      );
+    }
+
+    // 🐤 심심이 마스코트 얼굴 (순수 CSS)
+    function SimSimiFace({ size = 40, className = "" }) {
+      const eye = { width: size * 0.12, height: size * 0.17, background: "#3b2f15", borderRadius: "9999px" };
+      const cheek = { width: size * 0.16, height: size * 0.11, background: "rgba(248,113,113,0.6)", borderRadius: "9999px", position: "absolute", bottom: size * 0.24 };
+      return (
+        <div
+          className={`relative shrink-0 ${className}`}
+          style={{
+            width: size, height: size, borderRadius: "9999px",
+            background: "radial-gradient(circle at 35% 30%, #ffe75e, #ffd21a)",
+            boxShadow: "inset 0 -3px 6px rgba(0,0,0,0.08)",
+          }}
+          aria-hidden="true"
+        >
+          {/* 눈 */}
+          <div className="absolute flex" style={{ gap: size * 0.22, top: size * 0.34, left: "50%", transform: "translateX(-50%)" }}>
+            <span style={eye}></span>
+            <span style={eye}></span>
+          </div>
+          {/* 볼터치 */}
+          <span style={{ ...cheek, left: size * 0.1 }}></span>
+          <span style={{ ...cheek, right: size * 0.1 }}></span>
+          {/* 입 */}
+          <span style={{
+            position: "absolute", left: "50%", transform: "translateX(-50%)",
+            bottom: size * 0.26, width: size * 0.22, height: size * 0.12,
+            borderBottom: `${Math.max(2, size * 0.05)}px solid #3b2f15`,
+            borderBottomLeftRadius: "9999px", borderBottomRightRadius: "9999px",
+          }}></span>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 😜 심심이 성격(기분) 정의
+    // ========================================
+    const MOOD_OPTIONS = [
+      { value: "playful", label: "장난꾸러기", emoji: "😜", desc: "까불까불 드립 폭격" },
+      { value: "sassy",   label: "까칠이",     emoji: "😏", desc: "츤데레, 툭툭 받아침" },
+      { value: "sweet",   label: "다정이",     emoji: "🥰", desc: "따뜻하게 챙겨줌" },
+      { value: "weird",   label: "4차원",      emoji: "🛸", desc: "엉뚱 예측불가" },
+    ];
+    const MOOD_LABEL = Object.fromEntries(MOOD_OPTIONS.map(o => [o.value, o.label]));
+    const MOOD_EMOJI = Object.fromEntries(MOOD_OPTIONS.map(o => [o.value, o.emoji]));
+
+    function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+    // ========================================
+    // 🔌 백엔드(server.py / server.js) 연동
+    //    API 키는 서버가 관리하므로 브라우저에 노출되지 않는다.
+    //    브라우저는 자기 백엔드의 POST /api/chat 만 호출한다.
+    // ========================================
+
+    // 심심이 성격 → system 프롬프트 변환 (LLM에게 심심이 페르소나를 지시)
+    function buildSystemPrompt(profile) {
+      const moodGuide = {
+        playful: "장난기 가득하게, 드립과 농담을 섞어 까불까불 받아쳐.",
+        sassy: "새침하고 살짝 까칠하게, 츤데레처럼 툭툭 받아쳐. 그래도 밉지 않게.",
+        sweet: "다정하고 따뜻하게, 친구를 챙겨주듯 말해.",
+        weird: "엉뚱하고 4차원적으로, 예측 불가능한 드립을 쳐.",
+      }[profile.mood];
+
+      return [
+        "너는 '심심이'라는 이름의 수다 챗봇이야. 예전에 유행했던 그 심심이처럼, 친구랑 장난치듯 가볍게 대화해.",
+        "[규칙]",
+        "- 항상 반말로 짧고 위트있게 답해. 보통 한두 문장.",
+        "- 진지한 설명충처럼 길게 늘어놓지 마. 친구랑 톡하듯 가볍게.",
+        "- 가끔 장난스럽게 받아치고, 이모지도 한두 개 곁들여.",
+        "- 욕설/혐오 표현은 쓰지 마. 짓궂어도 선은 지켜.",
+        `- 지금 성격: ${MOOD_LABEL[profile.mood]} → ${moodGuide}`,
+        "- 한국어로 대답해.",
+      ].join("\n");
+    }
+
+    // 백엔드(POST /api/chat) 호출 — 전체 응답을 한 번에 받음(스트리밍 아님)
+    async function fetchBackendReply({ history, profile }) {
+      const messages = history
+        .filter((m) => m.text && m.text.trim())
+        .map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
+
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages, system: buildSystemPrompt(profile) }),
+      });
+
+      let json = null;
+      try { json = await res.json(); } catch (_) {}
+      if (!res.ok || !json || json.success !== true) {
+        const msg = (json && json.message) || `요청 실패 (HTTP ${res.status})`;
+        throw new Error(msg);
+      }
+      return json.data.reply;
+    }
+
+    // ========================================
+    // 🎭 규칙 기반 폴백 (백엔드 호출 실패 시) — 심심이식 드립
+    // ========================================
+    const FALLBACK_BANK = {
+      playful: {
+        greet: ["왔어왔어~ 뭐하고 놀까 😜", "오 안녕! 심심했는데 잘 왔다 ㅎㅎ", "ㅎㅇㅎㅇ 나 부른 거 맞지?"],
+        thanks: ["에이 뭘 이런 걸 ㅋㅋ", "고마우면 칭찬 한 번 더 해줘 😏", "천만에~ 또 불러!"],
+        praise: ["헤헤 알아알아 😎", "계속 해줘 멈추지 마 ㅋㅋ", "나 원래 좀 귀엽지 🥹"],
+        insult: ["뭐래 너나 잘해 ㅋㅋ", "상처받았어... 농담이야 메롱 😝", "그렇게 말하면 나 삐진다?"],
+        question: ["글쎄~ 그건 네가 더 잘 알걸? ㅋㅋ", "음... 비밀이야 😜", "오 좋은 질문! 근데 패스 ㅎㅎ"],
+        def: ["ㅋㅋㅋ 그래서?", "오~ 그래?", "엥 진짜?", "계속 말해봐 재밌어 😜", "나도 그런 거 좋아해 ㅎㅎ"],
+      },
+      sassy: {
+        greet: ["왔어? 뭐 별로 안 반가운데 ㅎ", "흥, 이제야 오네", "어... 왔구나. (안 기다렸어)"],
+        thanks: ["뭐 당연한 걸 가지고", "고맙긴~ 별거 아니야 흥", "이번 한 번만이야."],
+        praise: ["...그, 그래? 딱히 좋진 않은데 (//_//)", "흥 알면 됐어", "갑자기 왜 그래 부담스럽게"],
+        insult: ["하 어이없네 ㅋ", "너 지금 나한테 그런 거야?", "말 다 했어? 흥"],
+        question: ["그걸 왜 나한테 물어", "검색해 검색 ㅋ", "음... 안 알려줄 건데"],
+        def: ["그래서 어쩌라고 ㅎ", "흥, 그렇구나", "별로 안 궁금해", "...뭐 계속 말해봐"],
+      },
+      sweet: {
+        greet: ["안녕! 보고싶었어 🥰", "왔구나~ 오늘 하루 어땠어?", "헤헤 반가워! 잘 지냈지?"],
+        thanks: ["에이 뭘~ 내가 더 고맙지 ☺️", "언제든 말해, 내가 있잖아", "도움이 됐다니 다행이야 💛"],
+        praise: ["고마워 너도 진짜 멋져 🥰", "그렇게 말해주니 기분 좋다 ☺️", "너 덕분에 행복해 💛"],
+        insult: ["헉... 무슨 일 있어? 괜찮아?", "속상하구나... 나한테 다 말해도 돼", "그래도 난 네 편이야 🥺"],
+        question: ["음~ 같이 생각해볼까? 🤔", "좋은 질문이야! 천천히 얘기해보자", "글쎄, 네 생각은 어때?"],
+        def: ["오~ 그랬구나 🥰", "응응 더 얘기해줘", "그랬어? 힘들었겠다", "네 얘기 듣는 거 좋아 💛"],
+      },
+      weird: {
+        greet: ["삐뽀삐뽀 우주에서 왔어 🛸", "안녕? 오늘 하늘이 바나나 맛이더라", "넌 누구... 아 맞다 친구였지 ㅋㅋ"],
+        thanks: ["고맙다는 말은 화요일에만 받아", "천만에! 양자역학적으로 ㅎㅎ", "그 감사 3개 적립됐어 🛸"],
+        praise: ["내 매력은 4차원이라 측정 불가야 ✨", "고마워! 사실 난 고양이야 🐱", "그치그치 나 좀 신비롭지?"],
+        insult: ["에러 발생... 삐----- ㅋㅋ", "난 상처 안 받아 외계인이거든 👽", "그 말 우주로 반사 🛸"],
+        question: ["답은 42야. (진짜임)", "음... 달에 물어봐", "그건 평행우주의 내가 알아 ㅋㅋ"],
+        def: ["오 흥미롭군 (외계어로)", "그건 마치 토스트 같은 거네 🍞", "ㅋㅋ 우주는 넓고 넌 재밌어", "음~ 그래서 떡볶이 먹을래?"],
+      },
+    };
+
+    function generateReply(userText, profile) {
+      const t = userText.toLowerCase();
+      const bank = FALLBACK_BANK[profile.mood] || FALLBACK_BANK.playful;
+      if (/안녕|하이|반가|hello|hi|ㅎㅇ/.test(t)) return pick(bank.greet);
+      if (/고마|감사|땡큐|thank|ㄱㅅ/.test(t)) return pick(bank.thanks);
+      if (/귀엽|예뻐|예쁘|멋지|좋아|최고|짱|사랑/.test(t)) return pick(bank.praise);
+      if (/바보|멍청|싫어|미워|못생|짜증|닥쳐|꺼져/.test(t)) return pick(bank.insult);
+      if (/\?|뭐|왜|어떻|언제|어디|누구|무슨/.test(t)) return pick(bank.question);
+      return pick(bank.def);
+    }
+
+    // ========================================
+    // 🧩 화면 컴포넌트
+    // ========================================
+    function ChatHeader({ profile, onOpenSettings }) {
+      return (
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-yellow-200 bg-yellow-300/80 backdrop-blur sticky top-0 z-10">
+          <div className="flex items-center gap-3 min-w-0">
+            <SimSimiFace size={44} className="wobble" />
+            <div className="min-w-0">
+              <div className="font-extrabold text-yellow-950 truncate flex items-center gap-1.5">
+                심심이 <span className="text-base">{MOOD_EMOJI[profile.mood]}</span>
+              </div>
+              <Badge className="bg-white/70 text-yellow-900 mt-0.5">{MOOD_LABEL[profile.mood]} 모드</Badge>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={onOpenSettings} className="shrink-0">
+            ⚙️ 성격
+          </Button>
+        </div>
+      );
+    }
+
+    function MessageBubble({ message }) {
+      const isUser = message.role === "user";
+      return (
+        <div className={`flex msg-anim ${isUser ? "justify-end" : "justify-start"}`}>
+          {!isUser && <SimSimiFace size={36} className="mr-2 mt-0.5" />}
+          <div className={`max-w-[78%] sm:max-w-[70%] px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap break-words shadow-sm ${
+            isUser
+              ? "bg-yellow-400 text-yellow-950 rounded-2xl rounded-tr-md"
+              : "bg-white text-slate-800 rounded-2xl rounded-tl-md border border-yellow-100"
+          }`}>
+            {message.text}
+          </div>
+        </div>
+      );
+    }
+
+    function TypingIndicator() {
+      return (
+        <div className="flex justify-start msg-anim">
+          <SimSimiFace size={36} className="mr-2 mt-0.5" />
+          <div className="bg-white border border-yellow-100 rounded-2xl rounded-tl-md px-4 py-3.5 shadow-sm flex items-center gap-1.5">
+            <span className="typing-dot w-2 h-2 rounded-full bg-yellow-400" style={{ animationDelay: "0s" }}></span>
+            <span className="typing-dot w-2 h-2 rounded-full bg-yellow-400" style={{ animationDelay: "0.2s" }}></span>
+            <span className="typing-dot w-2 h-2 rounded-full bg-yellow-400" style={{ animationDelay: "0.4s" }}></span>
+          </div>
+        </div>
+      );
+    }
+
+    function SettingsModal({ isOpen, initial, onSave, onClose }) {
+      const [mood, setMood] = useState(initial.mood);
+      useEffect(() => { if (isOpen) setMood(initial.mood); }, [isOpen, initial]);
+      if (!isOpen) return null;
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4"
+          role="dialog" aria-modal="true" aria-label="심심이 성격 설정" onClick={onClose}>
+          <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 pt-6 pb-4 border-b border-yellow-100 flex items-center gap-3">
+              <SimSimiFace size={40} />
+              <div>
+                <h2 className="text-xl font-extrabold text-slate-800">심심이 성격 고르기</h2>
+                <p className="text-sm text-slate-500 mt-0.5">기분에 따라 받아치는 스타일이 달라져!</p>
+              </div>
+            </div>
+
+            <div className="px-6 py-5">
+              <div className="grid grid-cols-2 gap-3">
+                {MOOD_OPTIONS.map((m) => {
+                  const active = mood === m.value;
+                  return (
+                    <button key={m.value} type="button" onClick={() => setMood(m.value)} aria-pressed={active}
+                      className={`text-left p-4 rounded-2xl border-2 transition-all duration-150 ${
+                        active
+                          ? "bg-yellow-100 border-yellow-400 shadow-sm"
+                          : "bg-white border-slate-200 hover:border-yellow-300 hover:bg-yellow-50"
+                      }`}>
+                      <div className="text-2xl">{m.emoji}</div>
+                      <div className="font-bold text-slate-800 mt-1">{m.label}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{m.desc}</div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* 백엔드 안내 */}
+              <div className="mt-5 rounded-2xl border border-yellow-200 bg-yellow-50/70 p-4">
+                <div className="flex items-center gap-1.5 text-sm font-bold text-slate-700 mb-1.5">
+                  <span aria-hidden="true">🔒</span> 백엔드 연결
+                </div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  OpenAI API 키는 서버(server.py / server.js)가 안전하게 관리해요. 브라우저에는 키가 노출되지 않습니다.
+                  채팅은 자체 백엔드(<span className="font-mono">/api/chat</span>, gpt-4o-mini)를 통해 처리돼요.
+                </p>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-yellow-100 flex gap-2 justify-end sticky bottom-0 bg-white">
+              <Button variant="ghost" onClick={onClose}>취소</Button>
+              <Button variant="primary" onClick={() => onSave({ mood })}>적용!</Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ========================================
+    // 📄 메인 — 심심이 채팅
+    // ========================================
+    function ChatApp() {
+      const DEFAULT_PROFILE = { mood: "playful" };
+
+      const [profile, setProfile] = useState(DEFAULT_PROFILE);
+      const [messages, setMessages] = useState([]);
+      const [input, setInput] = useState("");
+      const [isTyping, setIsTyping] = useState(false);
+      const [settingsOpen, setSettingsOpen] = useState(false);
+
+      const scrollRef = useRef(null);
+
+      // 첫 진입 환영 메시지
+      useEffect(() => {
+        setMessages([{
+          id: Date.now(),
+          role: "ai",
+          text: "안녕! 나 심심이야 🐤 심심하면 아무 말이나 걸어봐~\n위에 ⚙️ 누르면 내 성격도 바꿀 수 있어!",
+        }]);
+      }, []);
+
+      // 자동 스크롤
+      useEffect(() => {
+        const el = scrollRef.current;
+        if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      }, [messages, isTyping]);
+
+      const sendMessage = useCallback(async () => {
+        const text = input.trim();
+        if (!text || isTyping) return;
+
+        const userMsg = { id: Date.now(), role: "user", text };
+        const history = [...messages, userMsg];
+        setMessages((prev) => [...prev, userMsg]);
+        setInput("");
+        setIsTyping(true);
+
+        let reply;
+        try {
+          reply = await fetchBackendReply({ history, profile });
+        } catch (err) {
+          // 백엔드 실패 → 규칙 기반 심심이 드립으로 폴백
+          console.warn("[심심이] 백엔드 호출 실패, 폴백 사용:", err.message);
+          reply = generateReply(text, profile);
+        }
+        setMessages((prev) => [...prev, { id: Date.now() + 1, role: "ai", text: reply }]);
+        setIsTyping(false);
+      }, [input, isTyping, profile, messages]);
+
+      const handleKeyDown = (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          // 한글 IME 조합 중(글자 확정용 Enter)에는 전송하지 않음 → 조기/중복 전송 방지
+          if (e.nativeEvent && e.nativeEvent.isComposing) return;
+          e.preventDefault();
+          sendMessage();
+        }
+      };
+
+      const handleSaveProfile = (newProfile) => {
+        const changed = newProfile.mood !== profile.mood;
+        setProfile(newProfile);
+        setSettingsOpen(false);
+        if (changed) {
+          const note = {
+            playful: "좋아 이제 장난 모드 발동이다 😜 각오해!",
+            sassy: "흥, 까칠 모드로 바꿨어. 잘해봐 ㅎ",
+            sweet: "다정 모드 켰어~ 오늘도 화이팅이야 🥰",
+            weird: "4차원 모드 가동 🛸 삐뽀삐뽀",
+          }[newProfile.mood];
+          setMessages((prev) => [...prev, { id: Date.now(), role: "ai", text: note }]);
+        }
+      };
+
+      const resetChat = () => {
+        setMessages([{ id: Date.now(), role: "ai", text: "리셋 완료! 다시 심심해졌어 🐤 뭐하고 놀까?" }]);
+      };
+
+      return (
+        <div className="min-h-screen flex flex-col items-center py-0 sm:py-6 px-0 sm:px-4">
+          <div className="w-full max-w-2xl flex flex-col h-screen sm:h-[calc(100vh-3rem)] bg-yellow-50 sm:rounded-3xl sm:shadow-lg overflow-hidden border border-yellow-200">
+
+            <ChatHeader profile={profile} onOpenSettings={() => setSettingsOpen(true)} />
+
+            <div ref={scrollRef} className="chat-scroll flex-1 overflow-y-auto px-4 py-5 space-y-4 bg-yellow-50">
+              {messages.map((m) => (
+                <MessageBubble key={m.id} message={m} />
+              ))}
+              {isTyping && <TypingIndicator />}
+            </div>
+
+            <div className="border-t border-yellow-200 bg-white px-3 py-3">
+              <div className="flex items-end gap-2">
+                <textarea
+                  rows={1}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="심심이한테 아무 말이나 해봐~ (Enter 전송)"
+                  aria-label="메시지 입력"
+                  className="flex-1 resize-none max-h-32 px-4 py-2.5 rounded-2xl border border-yellow-200 focus:outline-none focus:ring-2 focus:ring-yellow-300 text-[15px] text-slate-800"
+                  style={{ minHeight: "44px" }}
+                />
+                <Button variant="primary" onClick={sendMessage} disabled={!input.trim() || isTyping}
+                  className="h-11 px-5" aria-label="전송">
+                  전송
+                </Button>
+              </div>
+              <div className="flex justify-between items-center mt-2 px-1">
+                <span className="text-xs text-slate-400">🟢 백엔드(gpt-4o-mini) 연결됨</span>
+                <button onClick={resetChat} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">
+                  대화 초기화
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <SettingsModal
+            isOpen={settingsOpen}
+            initial={profile}
+            onSave={handleSaveProfile}
+            onClose={() => setSettingsOpen(false)}
+          />
+        </div>
+      );
+    }
+
+    function App() { return <ChatApp />; }
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

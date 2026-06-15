@@ -1,0 +1,93 @@
+{
+  "demo": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "왜 API 키를 서버에 숨겨야 해?"
+      },
+      {
+        "role": "assistant",
+        "content": "외부 유료 API(OpenAI, Anthropic, OpenWeatherMap 등)의 **키를 브라우저(프론트엔드)에 두면 누구나 개발자 도구로 훔쳐볼 수 있기 때문**이에요.\n\n그래서 **내 서버를 한 단계 둡니다**:\n```\n[브라우저 index.html] → [내 서버 /api/...] → [외부 API(OpenAI 등)]\n      프론트(키 없음)        백엔드(키 숨김, .env)      외부 서비스\n```\n프론트는 **오직 내 서버**만 호출하고, 키는 서버의 **환경변수(`.env`)**에만 둡니다. → 브라우저에 키가 절대 노출되지 않아요. 이것이 백엔드를 따로 두는 핵심 이유입니다.\n> 근거: 수업노트.md §3.1 / 코드: context/code/[3주차][서버+AI] AI 별명 생성기 server.js"
+      },
+      {
+        "role": "user",
+        "content": "fetch로 API 호출하는 방법 알려줘"
+      },
+      {
+        "role": "assistant",
+        "content": "브라우저에서 `fetch(url)`로 외부 서버에 요청을 보내고 **JSON**을 받아 화면에 그려요. 비동기라서 `async/await`를 씁니다.\n\n```js\nasync function getData() {\n  try {\n    const res = await fetch('https://api.example.com/items');\n    if (!res.ok) throw new Error('요청 실패: ' + res.status); // 404, 401 등 에러 처리\n    const data = await res.json();  // 응답을 JSON으로 변환\n    render(data);                    // 받은 데이터를 화면에 그림\n  } catch (e) {\n    showError(e.message);            // 사용자에게 에러 안내\n  }\n}\n```\n\n순서: `await fetch(...)` → 응답 `res.ok` 확인 → `await res.json()`으로 데이터 꺼내기.\n> 근거: 수업노트.md §2.1 / 코드: context/code/[3주차][네트워크] 포켓몬 도감 (API).html, [3주차][네트워크] 날씨앱.html"
+      },
+      {
+        "role": "user",
+        "content": "더치페이 계산기 코드 보여줘"
+      },
+      {
+        "role": "assistant",
+        "content": "요청하신 **code/[2주차][계산] 더치페이 계산기.html** 코드예요. 👇\n\n```html\n<!DOCTYPE html>\n<html lang=\"ko\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>더치페이</title>\n  <link rel=\"stylesheet\" as=\"style\" crossorigin href=\"https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css\" />\n  <script src=\"https://cdn.tailwindcss.com\"></script>\n  <script src=\"https://unpkg.com/react@18/umd/react.development.js\" crossorigin></script>\n  <script src=\"https://unpkg.com/react-dom@18/umd/react-dom.development.js\" crossorigin></script>\n  <script src=\"https://unpkg.com/@babel/standalone/babel.min.js\"></script>\n  <style>\n    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px);} to { opacity: 1; transform: translateY(0);} }\n    .animate-fade-in { animation: fadeIn 0.25s ease-out; }\n    @keyframes float1 { 0%,100% { transform: translate(0,0) scale(1);} 50% { transform: translate(30px,-20px) scale(1.1);} }\n    @keyframes float2 { 0%,100% { transform: translate(0,0) scale(1);} 50% { transform: translate(-25px,25px) scale(1.05);} }\n    @keyframes float3 { 0%,100% { transform: translate(0,0) scale(1);} 50% { transform: translate(20px,30px) scale(1.08);} }\n    .blob1 { animation: float1 14s ease-in-out infinite; }\n    .blob2 { animation: float2 18s ease-in-out infinite; }\n    .blob3 { animation: float3 16s ease-in-out infinite; }\n    input[type=number]::-webkit-inner-spin-button,\n    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }\n    input[type=number] { -moz-appearance: textfield; }\n    body { font-family: 'Pretendard', -apple-system, system-ui, sans-serif; }\n    /* 유리 입력 필드 공통 */\n    .glass-input {\n      background: rgba(255,255,255,0.10);\n      border: 1px solid rgba(255,255,255,0.25);\n      color: #fff;\n      backdrop-filter: blur(8px);\n      -webkit-backdrop-filter: blur(8px);\n      transition: all .2s ease;\n    }\n    .glass-input::placeholder { color: rgba(255,255,255,0.45); }\n    .glass-input:focus {\n      outline: none;\n      background: rgba(255,255,255,0.20);\n      border-color: rgba(255,255,255,0.65);\n      box-shadow: 0 0 0 3px rgba(255,255,255,0.12);\n    }\n  </style>\n</head>\n<body>\n  <div id=\"root\"></div>\n\n  <script type=\"text/babel\">\n    const { useState, useMemo, useCallback } = React;\n\n    // ========================================\n    // 유틸리티\n    // ========================================\n    function formatWon(value) {\n      const n = Number(value);\n      if (!isFinite(n)) return \"0원\";\n      return Math.round(n).toLocaleString(\"ko-KR\") + \"원\";\n    }\n    function toSafeNumber(value) {\n      const n = Number(value);\n      if (!isFinite(n) || isNaN(n) || n < 0) return 0;\n      return n;\n    }\n    let _idCounter = 0;\n    function uid() { _idCounter += 1; return Date.now().toString(36) + \"_\" + _idCounter; }\n\n    // ========================================\n    // 핵심 계산 로직 (차수 1개 N빵 + 할인)\n    // 배열 / 반복문 / 조건 분기 사용\n    // ========================================\n    function calcRound(round, participants) {\n      const total = toSafeNumber(round.totalInput);\n      const rawDiscount = toSafeNumber(round.discountValue);\n      let discount = 0;\n      if (total > 0 && rawDiscount > 0) {\n        if (round.discountType === \"percent\") {\n          const pct = Math.min(rawDiscount, 100);\n          discount = total * (pct / 100);\n        } else {\n          discount = Math.min(rawDiscount, total);\n        }\n      }\n      const finalTotal = Math.round(Math.max(total - discount, 0));\n      const members = participants.filter((p) => round.memberIds.includes(p.id));\n      const n = members.length;\n      const baseShare = n > 0 ? Math.floor(finalTotal / n) : 0;\n      const remainder = n > 0 ? finalTotal - baseShare * n : 0;\n      const shares = members.map((p, idx) => {\n        const extra = idx < remainder ? 1 : 0;\n        return { id: p.id, name: p.name, extra, pay: baseShare + extra };\n      });\n      return { total, discount, finalTotal, members, n, baseShare, remainder, shares };\n    }\n\n    // ========================================\n    // 🪟 글래스모피즘 디자인 시스템\n    // ========================================\n    function GlassCard({ className = \"\", children }) {\n      return (\n        <div className={`rounded-3xl border border-white/20 bg-white/10 backdrop-blur-xl shadow-[0_8px_32px_rgba(31,38,135,0.2)] ${className}`}>\n          {children}\n        </div>\n      );\n    }\n\n    function Button({ variant = \"primary\", size = \"md\", disabled = false, onClick, className = \"\", children, ...rest }) {\n      const base = \"inline-flex items-center justify-center font-bold rounded-2xl transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none\";\n      const variants = {\n        primary: \"bg-white/25 hover:bg-white/35 text-white border border-white/30 backdrop-blur-md\",\n        secondary: \"bg-white/10 hover:bg-white/20 text-white border border-white/25 backdrop-blur-md\",\n        danger: \"bg-transparent text-white/60 hover:text-rose-200 hover:bg-white/10\",\n      };\n      const sizes = { sm: \"text-[13px] px-3 py-2\", md: \"text-[15px] px-4 py-3\", lg: \"text-base px-5 py-4\" };\n      return (\n        <button disabled={disabled} onClick={onClick}\n          className={`${base} ${variants[variant]} ${sizes[size]} ${className}`} {...rest}>\n          {children}\n        </button>\n      );\n    }\n\n    function Field({ label, suffix, className = \"\", align = \"left\", ...rest }) {\n      return (\n        <label className=\"block\">\n          {label && <span className=\"block text-[13px] font-semibold text-white/70 mb-2\">{label}</span>}\n          <div className=\"relative\">\n            <input\n              className={`glass-input w-full rounded-2xl px-4 py-3.5 text-[16px] font-semibold\n                ${suffix ? \"pr-10\" : \"\"} ${align === \"right\" ? \"text-right\" : \"\"} ${className}`}\n              {...rest}\n            />\n            {suffix && (\n              <span className=\"absolute right-4 top-1/2 -translate-y-1/2 text-[15px] font-semibold text-white/60 pointer-events-none\">{suffix}</span>\n            )}\n          </div>\n        </label>\n      );\n    }\n\n    function Segmented({ options, value, onChange }) {\n      return (\n        <div className=\"inline-flex rounded-2xl bg-white/10 border border-white/20 p-1 backdrop-blur-md\" role=\"tablist\">\n          {options.map((opt) => {\n            const active = opt.value === value;\n            return (\n              <button key={opt.value} role=\"tab\" aria-selected={active} onClick={() => onChange(opt.value)}\n                className={`px-3.5 py-2 text-[14px] font-bold rounded-xl transition-all\n                  ${active ? \"bg-white/90 text-violet-700 shadow\" : \"text-white/70 hover:text-white\"}`}>\n                {opt.label}\n              </button>\n            );\n          })}\n        </div>\n      );\n    }\n\n    // ========================================\n    // 🧩 공통\n    // ========================================\n    function Header() {\n      return (\n        <header className=\"px-1 mb-7\">\n```\n\n> (파일이 길어 앞 160줄만 표시했어요. 전체는 `context/code/[2주차][계산] 더치페이 계산기.html` 파일에 있어요.)"
+      },
+      {
+        "role": "user",
+        "content": "아까 물어본 거랑 연결해서 더 자세히 설명해줘"
+      },
+      {
+        "role": "assistant",
+        "content": "(아까 \"코드: code/[2주차][계산] 더치페이 계산기.html\" 이야기와 연결해서 보면)\n\n수업에서 다룬 내용을 물어보세요. 예를 들면:\n- \"왜 API 키를 서버에 숨겨야 해?\"\n- \"fetch로 API 호출하는 방법 알려줘\"\n- \"하드코딩이랑 API 차이가 뭐야?\"\n- \"Express 서버는 어떻게 구성해?\"\n- \"더치페이 계산기 코드 보여줘\" (코드 원문을 찾아 보여줘요)\n- \"2주차에 뭐 만들었어?\", \"3주차에 뭐 배웠어?\"\n- \"아까 물어본 거랑 연결해서 설명해줘\" (이전 대화를 기억해요)\n> 근거: 수업노트.md §4.3"
+      },
+      {
+        "role": "user",
+        "content": "점심 뭐 먹지"
+      },
+      {
+        "role": "assistant",
+        "content": "음… 그 내용은 수업 자료에서 딱 맞는 항목을 못 찾았어요. 🙏\n이런 것들을 물어볼 수 있어요:\n• 전체 커리큘럼은 어떻게 구성돼 있나요?\n• 2주차에는 무엇을 만들었나요?\n• 단일 HTML 파일로 만든다는 게 무슨 뜻인가요?\n• fetch로 API를 호출하는 방법을 알려줘\n• 하드코딩과 API의 차이가 뭔가요?\n• 3주차(스터디)에는 무엇을 만들었나요?\n• 왜 API 키를 서버에 숨겨야 하나요?\n• Express 서버는 어떻게 구성하나요?\n• AI API(OpenAI / Anthropic)는 어떻게 호출하나요?\n• 시스템 프롬프트가 뭐고, '문서를 근거로 답하는 봇'은 어떻게 만드나요?\n• 3주차(퀘스트)에는 무엇을 만들었나요?\n• AI 별명 생성기는 어떻게 동작하나요?\n• 날씨 기반 옷차림 추천은 어떻게 동작하나요?\n• 이번 과제(수업 내용 질문 에이전트)는 무엇이고 어떻게 동작하나요?\n• 이 에이전트는 무엇을 물어볼 수 있나요?\n\n(또는 \"더치페이 계산기 코드 보여줘\"처럼 실습 코드를 요청해도 돼요.)"
+      }
+    ],
+    "lastTopic": "이 에이전트는 무엇을 물어볼 수 있나요?"
+  },
+  "demo-screenshot": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "왜 API 키를 서버에 숨겨야 해?"
+      },
+      {
+        "role": "assistant",
+        "content": "외부 유료 API(OpenAI, Anthropic, OpenWeatherMap 등)의 **키를 브라우저(프론트엔드)에 두면 누구나 개발자 도구로 훔쳐볼 수 있기 때문**이에요.\n\n그래서 **내 서버를 한 단계 둡니다**:\n```\n[브라우저 index.html] → [내 서버 /api/...] → [외부 API(OpenAI 등)]\n      프론트(키 없음)        백엔드(키 숨김, .env)      외부 서비스\n```\n프론트는 **오직 내 서버**만 호출하고, 키는 서버의 **환경변수(`.env`)**에만 둡니다. → 브라우저에 키가 절대 노출되지 않아요. 이것이 백엔드를 따로 두는 핵심 이유입니다.\n> 근거: 수업노트.md §3.1 / 코드: context/code/[3주차][서버+AI] AI 별명 생성기 server.js"
+      },
+      {
+        "role": "user",
+        "content": "fetch로 API 호출하는 방법 알려줘"
+      },
+      {
+        "role": "assistant",
+        "content": "브라우저에서 `fetch(url)`로 외부 서버에 요청을 보내고 **JSON**을 받아 화면에 그려요. 비동기라서 `async/await`를 씁니다.\n\n```js\nasync function getData() {\n  try {\n    const res = await fetch('https://api.example.com/items');\n    if (!res.ok) throw new Error('요청 실패: ' + res.status); // 404, 401 등 에러 처리\n    const data = await res.json();  // 응답을 JSON으로 변환\n    render(data);                    // 받은 데이터를 화면에 그림\n  } catch (e) {\n    showError(e.message);            // 사용자에게 에러 안내\n  }\n}\n```\n\n순서: `await fetch(...)` → 응답 `res.ok` 확인 → `await res.json()`으로 데이터 꺼내기.\n> 근거: 수업노트.md §2.1 / 코드: context/code/[3주차][네트워크] 포켓몬 도감 (API).html, [3주차][네트워크] 날씨앱.html"
+      },
+      {
+        "role": "user",
+        "content": "아까 거랑 연결해서 더 자세히 설명해줘"
+      },
+      {
+        "role": "assistant",
+        "content": "아까 \"fetch로 API를 호출하는 방법을 알려줘\" 이야기에 이어서 다시 정리하면요 👇\n\n브라우저에서 `fetch(url)`로 외부 서버에 요청을 보내고 **JSON**을 받아 화면에 그려요. 비동기라서 `async/await`를 씁니다.\n\n```js\nasync function getData() {\n  try {\n    const res = await fetch('https://api.example.com/items');\n    if (!res.ok) throw new Error('요청 실패: ' + res.status); // 404, 401 등 에러 처리\n    const data = await res.json();  // 응답을 JSON으로 변환\n    render(data);                    // 받은 데이터를 화면에 그림\n  } catch (e) {\n    showError(e.message);            // 사용자에게 에러 안내\n  }\n}\n```\n\n순서: `await fetch(...)` → 응답 `res.ok` 확인 → `await res.json()`으로 데이터 꺼내기.\n> 근거: 수업노트.md §2.1 / 코드: context/code/[3주차][네트워크] 포켓몬 도감 (API).html, [3주차][네트워크] 날씨앱.html"
+      }
+    ],
+    "lastTopic": "fetch로 API를 호출하는 방법을 알려줘"
+  },
+  "36624cc6-47ec-4491-b87c-76cedbdc17e7": {
+    "messages": [],
+    "lastTopic": null
+  },
+  "6ca27bdf-6362-4ae5-a5e4-17b7c9a4c9b5": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "fetch로 API 호출하는 방법 알려줘"
+      },
+      {
+        "role": "assistant",
+        "content": "브라우저에서 `fetch(url)`로 외부 서버에 요청을 보내고 **JSON**을 받아 화면에 그려요. 비동기라서 `async/await`를 씁니다.\n\n```js\nasync function getData() {\n  try {\n    const res = await fetch('https://api.example.com/items');\n    if (!res.ok) throw new Error('요청 실패: ' + res.status); // 404, 401 등 에러 처리\n    const data = await res.json();  // 응답을 JSON으로 변환\n    render(data);                    // 받은 데이터를 화면에 그림\n  } catch (e) {\n    showError(e.message);            // 사용자에게 에러 안내\n  }\n}\n```\n\n순서: `await fetch(...)` → 응답 `res.ok` 확인 → `await res.json()`으로 데이터 꺼내기.\n> 근거: 수업노트.md §2.1 / 코드: context/code/[3주차][네트워크] 포켓몬 도감 (API).html, [3주차][네트워크] 날씨앱.html"
+      }
+    ],
+    "lastTopic": "fetch로 API를 호출하는 방법을 알려줘"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "coin-price-dashboard-server",
+  "version": "1.0.0",
+  "description": "하버스쿨 AI 교육 - 3주차 Network 실습. 서버가 CoinGecko를 프록시·캐시하는 실시간 코인 시세 대시보드.",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

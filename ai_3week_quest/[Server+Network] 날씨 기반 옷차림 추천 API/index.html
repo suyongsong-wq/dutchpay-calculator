@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>오늘 뭐 입지? 🌤️ 날씨 옷차림 추천</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    :root {
+      --bg-a: #6aa9e0;
+      --bg-b: #b7d8f5;
+      --accent: #2f80ed;
+    }
+    body {
+      font-family: 'Malgun Gothic', 'Segoe UI', 'Apple SD Gothic Neo', sans-serif;
+      background: linear-gradient(160deg, var(--bg-a) 0%, var(--bg-b) 100%);
+      min-height: 100%;
+      transition: background 0.7s ease;
+      color: #20303f;
+    }
+    .wrap {
+      max-width: 520px;
+      margin: 0 auto;
+      padding: 40px 16px 80px;
+    }
+    .header { text-align: center; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.25); margin-bottom: 22px; }
+    .header h1 { font-size: 28px; margin: 0 0 6px; }
+    .header p { margin: 0; font-size: 14px; opacity: .92; }
+
+    .searchbar {
+      display: flex; gap: 8px;
+      background: #fff; padding: 8px; border-radius: 14px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.15); margin-bottom: 20px;
+    }
+    .searchbar input {
+      flex: 1; border: none; outline: none; font-size: 16px;
+      padding: 10px 12px; border-radius: 10px; background: #f1f5f9;
+    }
+    .searchbar button {
+      border: none; cursor: pointer; font-size: 15px; font-weight: 700;
+      color: #fff; background: var(--accent); padding: 0 18px; border-radius: 10px;
+      transition: filter .15s, background .7s ease;
+    }
+    .searchbar button:hover:not(:disabled) { filter: brightness(1.07); }
+    .searchbar button:disabled { opacity: .6; cursor: default; }
+
+    .card {
+      background: rgba(255,255,255,.96); border-radius: 18px; padding: 24px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.18); text-align: center;
+    }
+    .city { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+    .desc { color: #5b6b7a; font-size: 14px; }
+    .weather-icon { width: 110px; height: 110px; margin: -8px auto -6px; display: block; }
+    .temp { font-size: 52px; font-weight: 800; line-height: 1; color: var(--accent); transition: color .7s ease; }
+    .feels { color: #5b6b7a; font-size: 14px; margin-top: 4px; }
+    .range-pill {
+      display: inline-block; margin-top: 12px; padding: 5px 14px; border-radius: 999px;
+      background: var(--accent); color: #fff; font-size: 13px; font-weight: 700;
+      transition: background .7s ease;
+    }
+    .headline {
+      margin: 20px 0 14px; padding: 16px; border-radius: 14px;
+      background: #f1f5f9; font-size: 18px; font-weight: 800;
+    }
+    .items { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    .chip {
+      background: #fff; border: 2px solid var(--accent); color: var(--accent);
+      padding: 7px 14px; border-radius: 999px; font-size: 14px; font-weight: 700;
+      transition: border-color .7s ease, color .7s ease;
+    }
+
+    .empty, .loading { background: rgba(255,255,255,.92); border-radius: 18px; padding: 40px 24px; text-align: center; color: #5b6b7a; box-shadow: 0 10px 30px rgba(0,0,0,.12); }
+    .empty .big { font-size: 48px; margin-bottom: 8px; }
+    .spinner {
+      width: 38px; height: 38px; margin: 0 auto 14px;
+      border: 4px solid #d8e2ec; border-top-color: var(--accent); border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error {
+      background: #fdecec; border: 1px solid #f5b5b5; color: #b42318;
+      border-radius: 14px; padding: 16px; text-align: center; font-weight: 600;
+      box-shadow: 0 6px 16px rgba(0,0,0,.1);
+    }
+    .footer { text-align: center; color: #fff; opacity: .85; font-size: 12px; margin-top: 18px; text-shadow: 0 1px 3px rgba(0,0,0,.25); }
+
+    @media (max-width: 400px) {
+      .header h1 { font-size: 23px; }
+      .temp { font-size: 44px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useRef, useEffect } = React;
+
+    // 기온대 → 페이지/카드 색 테마 (색만 결정. 옷차림 추천 로직은 전적으로 백엔드 책임)
+    function getTheme(temp) {
+      if (temp >= 28) return { a: '#ff8a3d', b: '#ffd29b', accent: '#e8590c' }; // 무더위
+      if (temp >= 23) return { a: '#ffb347', b: '#ffe7b3', accent: '#f08c00' }; // 더움
+      if (temp >= 17) return { a: '#6aa9e0', b: '#b7d8f5', accent: '#2f80ed' }; // 선선
+      if (temp >= 9)  return { a: '#5c7cfa', b: '#bac8ff', accent: '#3b5bdb' }; // 쌀쌀
+      if (temp >= 5)  return { a: '#7048e8', b: '#d0bfff', accent: '#5f3dc4' }; // 추움
+      return { a: '#5f3dc4', b: '#b197fc', accent: '#4a2fb0' };                 // 한파
+    }
+
+    function applyTheme(theme) {
+      const r = document.documentElement.style;
+      r.setProperty('--bg-a', theme.a);
+      r.setProperty('--bg-b', theme.b);
+      r.setProperty('--accent', theme.accent);
+    }
+
+    function App() {
+      const [city, setCity] = useState('서울');
+      const [data, setData] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState('');
+      const reqId = useRef(0); // 요청 경쟁(race) 방지: 최신 요청 결과만 반영
+
+      useEffect(() => {
+        if (data && typeof data.temp === 'number') applyTheme(getTheme(data.temp));
+      }, [data]);
+
+      async function fetchRecommend() {
+        const q = city.trim() || '서울';
+        const myReq = ++reqId.current;
+        setLoading(true);
+        setError('');
+        try {
+          // ★ 외부 날씨 API가 아니라 "내 서버"의 /recommend 만 호출 (API 키는 서버에 숨겨져 있음)
+          const res = await fetch(`/recommend?city=${encodeURIComponent(q)}`);
+          const body = await res.json().catch(() => ({}));
+          if (myReq !== reqId.current) return; // 더 최신 요청이 있으면 무시
+          if (!res.ok) {
+            setError(body.error || `요청에 실패했습니다 (status ${res.status}).`);
+            setData(null);
+          } else {
+            setData(body);
+          }
+        } catch (e) {
+          if (myReq !== reqId.current) return;
+          setError('서버에 연결할 수 없습니다. 서버(npm start)가 실행 중인지 확인하세요.');
+          setData(null);
+        } finally {
+          if (myReq === reqId.current) setLoading(false);
+        }
+      }
+
+      function onKeyDown(e) {
+        if (e.key === 'Enter') fetchRecommend();
+      }
+
+      return (
+        <div className="wrap">
+          <div className="header">
+            <h1>오늘 뭐 입지? 🌤️</h1>
+            <p>도시를 입력하면 현재 날씨에 맞는 옷차림을 추천해드려요</p>
+          </div>
+
+          <div className="searchbar">
+            <input
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="도시명 (예: 서울, Busan, Tokyo)"
+              aria-label="도시명 입력"
+            />
+            <button onClick={fetchRecommend} disabled={loading}>
+              {loading ? '확인 중…' : '추천받기'}
+            </button>
+          </div>
+
+          {loading && (
+            <div className="loading">
+              <div className="spinner" />
+              날씨 확인 중…
+            </div>
+          )}
+
+          {!loading && error && (
+            <div className="error" role="alert">⚠️ {error}</div>
+          )}
+
+          {!loading && !error && !data && (
+            <div className="empty">
+              <div className="big">🧥</div>
+              도시를 입력하고 <b>추천받기</b>를 눌러보세요!
+            </div>
+          )}
+
+          {!loading && !error && data && (
+            <div className="card">
+              <div className="city">📍 {data.city}</div>
+              <img
+                className="weather-icon"
+                src={`https://openweathermap.org/img/wn/${data.icon}@2x.png`}
+                alt={data.weatherDesc}
+              />
+              <div className="desc">{data.weatherDesc}</div>
+              <div className="temp">{data.temp}℃</div>
+              <div className="feels">체감 {data.feelsLike}℃</div>
+              <div className="range-pill">{data.tempRange}</div>
+
+              <div className="headline">{data.recommendation.headline}</div>
+              <div className="items">
+                {data.recommendation.items.map((it, i) => (
+                  <span className="chip" key={i}>{it}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="footer">날씨 데이터: OpenWeatherMap · 옷차림 추천은 우리 서버가 가공</div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

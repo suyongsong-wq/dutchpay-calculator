@@ -1,0 +1,15 @@
+{
+  "name": "context-class-qa-agent",
+  "version": "1.0.0",
+  "description": "수업 내용 질문 에이전트 - 수업 노트(텍스트)와 실습 코드를 근거로 답하고 대화 맥락을 기억하는 Claude 기반 챗봇 서버",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

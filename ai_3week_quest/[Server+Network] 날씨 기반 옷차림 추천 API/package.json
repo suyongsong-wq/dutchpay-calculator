@@ -1,0 +1,16 @@
+{
+  "name": "weather-clothing-api",
+  "version": "1.0.0",
+  "description": "날씨 기반 옷차림 추천 API - OpenWeatherMap으로 현재 기온을 받아 기온 구간별 옷차림을 추천하는 서버 (API 키는 .env에 숨김)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}

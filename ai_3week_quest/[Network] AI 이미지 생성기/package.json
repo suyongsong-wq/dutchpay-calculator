@@ -1,0 +1,8 @@
+{
+  "name": "ai-image-generator-server",
+  "version": "1.0.0",
+  "description": "하버스쿨 AI 교육 - Network + AI 실습. 서버가 프롬프트 조합과 이미지 프록시를 담당하는 풀스택 이미지 생성기.",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

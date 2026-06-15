@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>날씨 · Weather</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    :root { color-scheme: dark; }
+    * { -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+        "Helvetica Neue", system-ui, "Apple SD Gothic Neo", sans-serif;
+      transition: background 0.9s ease;
+      -webkit-font-smoothing: antialiased;
+    }
+    /* iOS 26 Liquid Glass 머티리얼 */
+    .glass {
+      background: rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(30px) saturate(160%);
+      -webkit-backdrop-filter: blur(30px) saturate(160%);
+      border: 0.5px solid rgba(255, 255, 255, 0.22);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.30),
+        inset 0 -1px 1px rgba(0, 0, 0, 0.10),
+        0 10px 30px rgba(0, 0, 0, 0.18);
+    }
+    .glass-strong {
+      background: rgba(255, 255, 255, 0.16);
+      backdrop-filter: blur(40px) saturate(180%);
+      -webkit-backdrop-filter: blur(40px) saturate(180%);
+      border: 0.5px solid rgba(255, 255, 255, 0.25);
+    }
+    .num { font-variant-numeric: tabular-nums; }
+    @keyframes fadeUp { from { opacity:0; transform: translateY(18px); } to { opacity:1; transform: translateY(0); } }
+    .fade-up { animation: fadeUp .6s cubic-bezier(.22,1,.36,1) both; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin .9s linear infinite; }
+    /* 배경 위 은은한 광원 */
+    .orb { position: fixed; border-radius: 9999px; filter: blur(70px); opacity:.45; pointer-events:none; }
+  </style>
+</head>
+<body class="min-h-screen" style="background: linear-gradient(180deg, #3a7bd5 0%, #2b5edb 45%, #1e3a8a 100%);">
+  <div class="orb" style="top:-80px; left:-60px; width:260px; height:260px; background:#7dd3fc;"></div>
+  <div class="orb" style="bottom:-100px; right:-60px; width:300px; height:300px; background:#4338ca;"></div>
+  <div id="root" class="relative"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback } = React;
+
+    // ⚙️ 상수
+    const API_BASE_URL = 'https://api.openweathermap.org/data/2.5/weather';
+    const ICON_BASE_URL = 'https://openweathermap.org/img/wn';
+    const STORAGE_KEY = 'owm_api_key';
+    const EMBEDDED_API_KEY = '1d5926b624ef458b103acdefc47d5cbc';
+
+    // 날씨 + 낮/밤(icon 끝의 d/n)에 따른 배경 (iOS 하늘 그라데이션 느낌)
+    const BG = {
+      Clear_d:        'linear-gradient(180deg, #2e8bf0 0%, #1f6fe0 45%, #0c4bb5 100%)',
+      Clear_n:        'linear-gradient(180deg, #0b1f4d 0%, #10234f 50%, #050a1f 100%)',
+      Clouds_d:       'linear-gradient(180deg, #5b7fa6 0%, #44617f 50%, #2c3e52 100%)',
+      Clouds_n:       'linear-gradient(180deg, #1c2433 0%, #232c3d 50%, #0c1018 100%)',
+      Rain_d:         'linear-gradient(180deg, #4a5a6e 0%, #344253 50%, #1e2733 100%)',
+      Rain_n:         'linear-gradient(180deg, #18202b 0%, #1c2530 50%, #080b10 100%)',
+      Drizzle_d:      'linear-gradient(180deg, #5470a0 0%, #3a5384 50%, #233356 100%)',
+      Drizzle_n:      'linear-gradient(180deg, #161f33 0%, #1d2740 50%, #090d1a 100%)',
+      Thunderstorm_d: 'linear-gradient(180deg, #2a3047 0%, #34304f 50%, #15121f 100%)',
+      Thunderstorm_n: 'linear-gradient(180deg, #15121f 0%, #211b34 50%, #060409 100%)',
+      Snow_d:         'linear-gradient(180deg, #8fb4d6 0%, #6f93b8 50%, #51708f 100%)',
+      Snow_n:         'linear-gradient(180deg, #2a3a4e 0%, #34465c 50%, #161f2a 100%)',
+      Mist_d:         'linear-gradient(180deg, #7d8a99 0%, #5f6b78 50%, #434c57 100%)',
+      Mist_n:         'linear-gradient(180deg, #20262d 0%, #2a3138 50%, #0e1115 100%)',
+      Default:        'linear-gradient(180deg, #3a7bd5 0%, #2b5edb 45%, #1e3a8a 100%)',
+    };
+    function applyBackground(main, icon) {
+      const tod = icon && icon.endsWith('n') ? 'n' : 'd';
+      document.body.style.background = BG[`${main}_${tod}`] || BG.Default;
+    }
+
+    function windDirText(deg) {
+      if (deg == null) return '';
+      return ['북','북동','동','남동','남','남서','서','북서'][Math.round(deg / 45) % 8];
+    }
+    // 도시 현지시각 (sunrise/sunset 등 UTC초 + timezone offset)
+    function cityTime(utcSec, tzOffset) {
+      const d = new Date((utcSec + tzOffset) * 1000);
+      const h = d.getUTCHours(), m = d.getUTCMinutes();
+      const ap = h < 12 ? '오전' : '오후';
+      const hh = ((h + 11) % 12) + 1;
+      return `${ap} ${hh}:${String(m).padStart(2, '0')}`;
+    }
+    function friendlyError(status, message) {
+      if (status === 401) return 'API 키가 올바르지 않거나 아직 활성화되지 않았어요. (발급 직후 최대 2시간)';
+      if (status === 404) return '해당 도시를 찾을 수 없어요. 이름을 다시 확인해 주세요.';
+      if (status === 429) return '요청이 너무 많아요. 잠시 후 다시 시도해 주세요.';
+      return message || '날씨 정보를 불러오지 못했어요.';
+    }
+
+    // OpenWeatherMap 날씨 코드(weather[0].id) → 자연스러운 한글
+    // (lang=kr 원문이 "튼구름" 처럼 어색해서 직접 매핑)
+    const WEATHER_KO = {
+      800:'맑음', 801:'구름 조금', 802:'구름 조금', 803:'구름 많음', 804:'흐림',
+      701:'옅은 안개', 711:'연무', 721:'실안개', 731:'황사', 741:'안개',
+      751:'모래바람', 761:'먼지', 762:'화산재', 771:'돌풍', 781:'토네이도',
+      600:'약한 눈', 601:'눈', 602:'폭설', 611:'진눈깨비', 612:'진눈깨비',
+      613:'진눈깨비', 615:'비와 눈', 616:'비와 눈', 620:'약한 눈', 621:'눈', 622:'폭설',
+      500:'약한 비', 501:'비', 502:'강한 비', 503:'매우 강한 비', 504:'폭우',
+      511:'어는 비', 520:'약한 소나기', 521:'소나기', 522:'강한 소나기', 531:'소나기',
+      300:'약한 이슬비', 301:'이슬비', 302:'강한 이슬비', 310:'이슬비', 311:'이슬비',
+      312:'강한 이슬비', 313:'소나기성 이슬비', 314:'강한 이슬비', 321:'소나기성 이슬비',
+      200:'약한 뇌우', 201:'뇌우', 202:'강한 뇌우', 210:'약한 뇌우', 211:'뇌우',
+      212:'강한 뇌우', 221:'뇌우', 230:'약한 뇌우', 231:'뇌우', 232:'강한 뇌우',
+    };
+    function weatherKo(id, fallback) {
+      return WEATHER_KO[id] || fallback || '';
+    }
+
+    // ── 작은 SVG 아이콘 ──
+    const Icon = ({ d, className = 'w-4 h-4' }) => (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+        strokeLinecap="round" strokeLinejoin="round" className={className}>{d}</svg>
+    );
+    const I = {
+      search: <path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3" />,
+      loc:    <><path d="M12 21s-7-6.2-7-11a7 7 0 1 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></>,
+      thermo: <path d="M14 14.76V5a2 2 0 0 0-4 0v9.76a4 4 0 1 0 4 0z"/>,
+      drop:   <path d="M12 3s6 6.3 6 10a6 6 0 0 1-12 0c0-3.7 6-10 6-10z"/>,
+      wind:   <path d="M3 8h11a3 3 0 1 0-3-3M3 16h15a3 3 0 1 1-3 3M3 12h9"/>,
+      gauge:  <><circle cx="12" cy="13" r="8"/><path d="M12 13l4-3M12 5V3"/></>,
+      eye:    <><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></>,
+      cloud:  <path d="M6 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.5A3.5 3.5 0 0 1 18 18z"/>,
+      sunrise:<><path d="M12 3v5M5.6 10.6 4 9M18.4 10.6 20 9M3 18h18M7 18a5 5 0 0 1 10 0"/><path d="M9 21h6"/></>,
+      sunset: <><path d="M12 9V4M5.6 11.6 4 10M18.4 11.6 20 10M3 18h18M7 18a5 5 0 0 1 10 0"/><path d="M9 21h6"/></>,
+    };
+
+    // 디테일 타일 (iOS 날씨 카드)
+    function Tile({ icon, label, value, sub }) {
+      return (
+        <div className="glass rounded-2xl p-4 flex flex-col">
+          <div className="flex items-center gap-1.5 text-white/55 text-[11px] font-semibold tracking-wide uppercase">
+            <Icon d={icon} className="w-3.5 h-3.5" /> {label}
+          </div>
+          <div className="mt-2 text-white text-[26px] font-medium num leading-none">{value}</div>
+          {sub && <div className="mt-auto pt-2 text-white/60 text-[12px]">{sub}</div>}
+        </div>
+      );
+    }
+
+    function Spinner({ className = '' }) {
+      return (
+        <svg className={`spin ${className}`} width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+          <path d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+        </svg>
+      );
+    }
+
+    function WeatherView({ data }) {
+      const w = (data.weather && data.weather[0]) || {};
+      const iconUrl = w.icon ? `${ICON_BASE_URL}/${w.icon}@2x.png` : '';
+      const desc = weatherKo(w.id, w.description);
+      const tz = data.timezone || 0;
+      const visKm = data.visibility != null ? (data.visibility / 1000).toFixed(1) : '–';
+
+      return (
+        <div className="fade-up">
+          {/* 히어로 */}
+          <div className="text-center pt-2 pb-6">
+            <h1 className="text-white text-[34px] font-medium tracking-tight">{data.name}</h1>
+            <div className="flex items-start justify-center">
+              <span className="text-white text-[96px] font-thin leading-none num pl-5">
+                {Math.round(data.main.temp)}°
+              </span>
+            </div>
+            <p className="text-white/85 text-[19px] -mt-1">{desc}</p>
+            <p className="text-white/85 text-[17px] num mt-0.5">
+              최고 {Math.round(data.main.temp_max)}°　최저 {Math.round(data.main.temp_min)}°
+            </p>
+          </div>
+
+          {/* 요약 카드 */}
+          <div className="glass rounded-2xl px-4 py-3 mb-3 flex items-center gap-3">
+            {iconUrl && <img src={iconUrl} alt="" width="40" height="40" className="-my-1" />}
+            <p className="text-white/90 text-[14px] leading-snug">
+              지금 <b className="font-semibold">{desc}</b>, 체감 {Math.round(data.main.feels_like)}°.
+              습도 {data.main.humidity}% · 바람 {data.wind.speed}m/s.
+            </p>
+          </div>
+
+          {/* 디테일 그리드 */}
+          <div className="grid grid-cols-2 gap-3">
+            <Tile icon={I.thermo} label="체감 온도" value={`${Math.round(data.main.feels_like)}°`}
+              sub={data.main.feels_like < data.main.temp ? '실제보다 시원해요' : '실제와 비슷해요'} />
+            <Tile icon={I.drop} label="습도" value={`${data.main.humidity}%`}
+              sub={`기압 ${data.main.pressure}hPa`} />
+            <Tile icon={I.wind} label="바람" value={`${data.wind.speed} m/s`}
+              sub={`${windDirText(data.wind.deg)}풍${data.wind.gust ? ` · 돌풍 ${data.wind.gust}` : ''}`} />
+            <Tile icon={I.eye} label="가시거리" value={`${visKm} km`}
+              sub={data.clouds ? `구름 ${data.clouds.all}%` : ''} />
+            <Tile icon={I.sunrise} label="일출" value={cityTime(data.sys.sunrise, tz)} sub="현지 시각" />
+            <Tile icon={I.sunset} label="일몰" value={cityTime(data.sys.sunset, tz)} sub="현지 시각" />
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [apiKey] = useState(() => localStorage.getItem(STORAGE_KEY) || EMBEDDED_API_KEY);
+      const [city, setCity] = useState('');
+      const [weather, setWeather] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState('');
+      const [locating, setLocating] = useState(false);
+
+      const fetchWeather = useCallback(async (params) => {
+        setLoading(true); setError('');
+        try {
+          const url = new URL(API_BASE_URL);
+          Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+          url.searchParams.set('appid', apiKey.trim());
+          url.searchParams.set('units', 'metric');
+          url.searchParams.set('lang', 'kr');
+          const res = await fetch(url.toString());
+          const json = await res.json();
+          if (!res.ok) {
+            setError(friendlyError(res.status, json && json.message));
+            setWeather(null); applyBackground('Default');
+            return;
+          }
+          setWeather(json);
+          const ww = json.weather && json.weather[0];
+          applyBackground(ww ? ww.main : 'Default', ww ? ww.icon : '');
+        } catch (e) {
+          setError('네트워크 오류가 발생했어요. 연결을 확인해 주세요.');
+          setWeather(null);
+        } finally {
+          setLoading(false);
+        }
+      }, [apiKey]);
+
+      // 첫 진입 시 현재 위치 자동 감지(보너스), 거부되면 서울로 폴백
+      useEffect(() => {
+        if (!('geolocation' in navigator)) { fetchWeather({ q: 'Seoul' }); return; }
+        setLocating(true);
+        navigator.geolocation.getCurrentPosition(
+          (pos) => { setLocating(false); fetchWeather({ lat: pos.coords.latitude, lon: pos.coords.longitude }); },
+          () => { setLocating(false); fetchWeather({ q: 'Seoul' }); },
+          { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+        );
+      }, [fetchWeather]);
+
+      const handleSearch = (e) => {
+        e.preventDefault();
+        const q = city.trim();
+        if (!q) return;
+        fetchWeather({ q });
+      };
+
+      const handleGeolocate = () => {
+        if (!('geolocation' in navigator)) { setError('이 브라우저는 위치 감지를 지원하지 않아요.'); return; }
+        setLocating(true); setError('');
+        navigator.geolocation.getCurrentPosition(
+          (pos) => { setLocating(false); fetchWeather({ lat: pos.coords.latitude, lon: pos.coords.longitude }); },
+          (err) => {
+            setLocating(false);
+            setError(err.code === err.PERMISSION_DENIED
+              ? '위치 권한이 거부됐어요. 도시 이름으로 검색하거나 브라우저 설정에서 허용해 주세요.'
+              : '현재 위치를 가져올 수 없어요. 잠시 후 다시 시도해 주세요.');
+          },
+          { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+        );
+      };
+
+      return (
+        <div className="min-h-screen mx-auto max-w-md px-4 pt-12 pb-10"
+          style={{ paddingTop: 'max(48px, env(safe-area-inset-top))' }}>
+
+          {/* iOS 스타일 검색 바 */}
+          <form onSubmit={handleSearch} className="flex items-center gap-2 mb-5">
+            <div className="glass-strong glass flex-1 flex items-center gap-2 rounded-2xl px-3.5 py-2.5">
+              <span className="text-white/60"><Icon d={I.search} className="w-[18px] h-[18px]" /></span>
+              <input
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                placeholder="도시 검색 (예: Seoul, Tokyo)"
+                className="flex-1 bg-transparent text-white placeholder-white/55 text-[15px] outline-none"
+              />
+              {loading && <Spinner className="text-white/80 w-[18px] h-[18px]" />}
+            </div>
+            <button type="button" onClick={handleGeolocate} disabled={locating}
+              className="glass glass-strong rounded-2xl p-2.5 text-white active:scale-95 transition disabled:opacity-50"
+              title="현재 위치">
+              {locating ? <Spinner className="text-white w-[20px] h-[20px]" />
+                        : <Icon d={I.loc} className="w-[20px] h-[20px]" />}
+            </button>
+          </form>
+
+          {/* 에러 */}
+          {error && (
+            <div className="glass rounded-2xl px-4 py-3 mb-4 text-white text-[14px] flex items-start gap-2 fade-up">
+              <span>⚠️</span><span>{error}</span>
+            </div>
+          )}
+
+          {/* 본문 */}
+          {loading && !weather ? (
+            <div className="flex flex-col items-center justify-center py-28 text-white/80 gap-3">
+              <Spinner className="w-8 h-8" />
+              <p className="text-[14px]">{locating ? '현재 위치를 확인하는 중…' : '날씨를 불러오는 중…'}</p>
+            </div>
+          ) : weather ? (
+            <WeatherView data={weather} />
+          ) : !error && (
+            <div className="text-center py-28 text-white/70">
+              <p className="text-5xl mb-3">🌤️</p>
+              <p className="text-[14px]">도시를 검색하거나 위치 버튼을 눌러보세요.</p>
+            </div>
+          )}
+
+          <p className="text-center text-white/45 text-[11px] mt-10">날씨 데이터 · OpenWeather</p>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
